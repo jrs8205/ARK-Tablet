@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Older / OEM devices (e.g. OnePlus 10 5G) are missing "Telia Root CA v2"
+  from their trusted root certificate store. It is a relatively new root
+  (added to trust stores ~2022), so Pixels have it but older devices do not.
+
+  The National Land Survey of Finland (Maanmittauslaitos) APIs
+    - avoin-paikkatieto.maanmittauslaitos.fi  (place search / geocoding)
+    - avoin-karttakuva.maanmittauslaitos.fi   (base map WMTS tiles)
+  use the chain  *.maanmittauslaitos.fi -> Telia Server CA v3 -> Telia Root CA v2.
+  Without the root the device cannot find a trust anchor:
+    java.security.cert.CertPathValidatorException: Trust anchor for certification path not found
+
+  Fix: trust the bundled Telia Root CA v2 root IN ADDITION to the SYSTEM
+  certificates, and only for maanmittauslaitos.fi domains. Trust for other
+  services (FMI, Digitraffic, HSL etc.) remains unchanged.
+  Fixes both HttpURLConnection geocoding (MmlGeocodingClient) and
+  MapLibre map tile fetching (RoadCamerasFragment).
+-->
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config>
+        <domain includeSubdomains="true">maanmittauslaitos.fi</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/telia_root_ca_v2" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

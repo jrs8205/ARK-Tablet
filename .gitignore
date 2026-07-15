@@ -1,0 +1,17 @@
+# Build outputs
+.gradle/
+build/
+bin/
+*.apk
+*.aab
+releases/
+
+# Local configuration and signing (never commit)
+local.properties
+*.keystore
+
+# IDE
+.idea/
+*.iml
+captures/
+.cxx/

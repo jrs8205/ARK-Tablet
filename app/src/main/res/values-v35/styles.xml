@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Opt-out of Android 15's edge-to-edge enforcement: keeps the ActionBar
+         on the settings page separate from the content so the first preference
+         does not end up underneath it. The attribute requires API 35, so it is
+         defined only in values-v35 — the base values/styles.xml omits it, which
+         keeps lint's NewApi check happy at minSdk 30. -->
+    <style name="SettingsTheme" parent="Theme.AppCompat.DayNight.DarkActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="preferenceTheme">@style/PreferenceThemeOverlay</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>

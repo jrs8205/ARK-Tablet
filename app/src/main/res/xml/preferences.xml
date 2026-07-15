@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="@string/pref_cat_display">
+        <SeekBarPreference
+            app:key="day_brightness"
+            app:title="@string/pref_day_brightness"
+            android:max="100"
+            app:min="1"
+            app:defaultValue="60"
+            app:showSeekBarValue="true"
+            app:updatesContinuously="true" />
+        <SeekBarPreference
+            app:key="night_brightness"
+            app:title="@string/pref_night_brightness"
+            android:max="100"
+            app:min="1"
+            app:defaultValue="8"
+            app:showSeekBarValue="true"
+            app:updatesContinuously="true" />
+        <Preference
+            app:key="day_morning_hour"
+            app:title="@string/pref_day_morning"
+            app:summary="06:00" />
+        <Preference
+            app:key="night_evening_hour"
+            app:title="@string/pref_night_evening"
+            app:summary="21:00" />
+        <SwitchPreferenceCompat
+            app:key="night_red_tint"
+            app:title="@string/pref_night_red_tint"
+            app:summary="@string/pref_night_red_tint_summary"
+            app:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_weather">
+        <SwitchPreferenceCompat
+            app:key="follow_gps_location"
+            app:title="@string/pref_follow_gps"
+            app:summary="@string/pref_follow_gps_summary"
+            app:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_ruuvi">
+        <Preference
+            app:key="ruuvi_scan"
+            app:title="@string/pref_ruuvi_scan"
+            app:summary="@string/pref_ruuvi_scan_summary" />
+        <Preference
+            app:key="ruuvi_slot_bedroom"
+            app:title="@string/pref_ruuvi_slot_bedroom" />
+        <EditTextPreference
+            app:key="ruuvi_mac_bedroom_name"
+            app:title="@string/pref_ruuvi_name_bedroom"
+            app:dialogTitle="@string/pref_ruuvi_name_dialog" />
+        <Preference
+            app:key="ruuvi_slot_livingroom"
+            app:title="@string/pref_ruuvi_slot_livingroom" />
+        <EditTextPreference
+            app:key="ruuvi_mac_livingroom_name"
+            app:title="@string/pref_ruuvi_name_livingroom"
+            app:dialogTitle="@string/pref_ruuvi_name_dialog" />
+        <Preference
+            app:key="ruuvi_slot_balcony"
+            app:title="@string/pref_ruuvi_slot_balcony" />
+        <EditTextPreference
+            app:key="ruuvi_mac_balcony_name"
+            app:title="@string/pref_ruuvi_name_balcony"
+            app:dialogTitle="@string/pref_ruuvi_name_dialog" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_warnings">
+        <SwitchPreferenceCompat
+            app:key="warnings_auto_scroll"
+            app:title="@string/pref_warnings_auto_scroll"
+            app:summary="@string/pref_warnings_auto_scroll_summary"
+            app:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_app">
+        <Preference
+            app:key="version"
+            app:title="@string/pref_version"
+            app:selectable="false" />
+        <Preference
+            app:key="last_update"
+            app:title="@string/pref_last_update"
+            app:selectable="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/pref_cat_history">
+        <Preference
+            app:key="db_size"
+            app:title="@string/pref_db_size"
+            app:summary="@string/pref_db_size_loading"
+            app:selectable="false" />
+        <Preference
+            app:key="open_history"
+            app:title="@string/system_open_history" />
+        <ListPreference
+            app:key="retention_days"
+            app:title="@string/pref_retention_days"
+            app:entries="@array/retention_labels"
+            app:entryValues="@array/retention_values"
+            app:defaultValue="1095"
+            app:useSimpleSummaryProvider="true" />
+        <Preference
+            app:key="export_csv"
+            app:title="@string/pref_export_csv" />
+        <Preference
+            app:key="clear_db"
+            app:title="@string/pref_clear_db"
+            app:summary="@string/pref_clear_db_summary" />
+    </PreferenceCategory>
+
+</PreferenceScreen>
