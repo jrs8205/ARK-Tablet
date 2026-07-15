@@ -105,7 +105,9 @@ public class OpenMeteoClient {
         JSONArray code = firstArray(h, "weather_code", "weathercode");
         JSONArray isDay = h.optJSONArray("is_day");
 
-        Calendar cal = Calendar.getInstance(zone);
+        // Hour/day fields are shown next to the clock → compute them in the
+        // device time zone (the response zone is only needed for iso8601 parsing).
+        Calendar cal = Calendar.getInstance(TimeZone.getDefault());
         int n = time.length();
         for (int i = 0; i < n; i++) {
             OpenMeteoData.Hour row = new OpenMeteoData.Hour();
