@@ -7,7 +7,7 @@ import java.util.TimeZone;
 
 public final class Astronomy {
 
-    private static final Locale FI = new Locale("fi", "FI");
+    private static final Locale L = Locale.US;
     private static final double ZENITH = 90.833;
     private static final double SYNODIC_MONTH_DAYS = 29.53058867;
     private static final long KNOWN_NEW_MOON_UTC_MS = 947182440000L; // 2000-01-06 18:14 UTC
@@ -21,7 +21,7 @@ public final class Astronomy {
     }
 
     private static SunTimes calculateSun(Date date, double latitude, double longitude, TimeZone zone) {
-        Calendar cal = Calendar.getInstance(zone, FI);
+        Calendar cal = Calendar.getInstance(zone, L);
         cal.setTime(date);
         int dayOfYear = cal.get(Calendar.DAY_OF_YEAR);
         int rise = calculateSunEventMinutes(dayOfYear, latitude, longitude, zone, true, date);
@@ -89,32 +89,32 @@ public final class Astronomy {
         if (sun.sunsetMinutes == SunTimes.NEVER_SETS) {
             return ctx.getString(R.string.sun_never_sets);
         }
-        return String.format(FI, ctx.getString(R.string.sun_line_format),
+        return String.format(L, ctx.getString(R.string.sun_line_format),
                 formatMinutes(sun.sunriseMinutes),
                 formatMinutes(sun.sunsetMinutes),
                 formatDuration(sun.dayLengthMinutes()));
     }
 
     private static String moonLabel(double phase) {
-        if (phase < 0.03 || phase >= 0.97) return "uusikuu";
-        if (phase < 0.22) return "kasvava sirppi";
-        if (phase < 0.28) return "ens. neljännes";
-        if (phase < 0.47) return "kasvava kuu";
-        if (phase < 0.53) return "täysikuu";
-        if (phase < 0.72) return "vähenevä kuu";
-        if (phase < 0.78) return "viim. neljännes";
-        return "vähenevä sirppi";
+        if (phase < 0.03 || phase >= 0.97) return "new moon";
+        if (phase < 0.22) return "waxing crescent";
+        if (phase < 0.28) return "first quarter";
+        if (phase < 0.47) return "waxing gibbous";
+        if (phase < 0.53) return "full moon";
+        if (phase < 0.72) return "waning gibbous";
+        if (phase < 0.78) return "last quarter";
+        return "waning crescent";
     }
 
     static String formatMinutes(int minutes) {
         int h = minutes / 60;
         int m = minutes % 60;
-        return String.format(FI, "%02d:%02d", h, m);
+        return String.format(L, "%02d:%02d", h, m);
     }
 
     static String formatDuration(int minutes) {
         if (minutes < 0) minutes += 1440;
-        return String.format(FI, "%d h %02d min", minutes / 60, minutes % 60);
+        return String.format(L, "%d h %02d min", minutes / 60, minutes % 60);
     }
 
     public static String formatSunrise(SunTimes sun) {

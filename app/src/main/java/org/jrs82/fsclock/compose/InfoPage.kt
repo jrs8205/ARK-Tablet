@@ -15,17 +15,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -36,27 +28,20 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
-/* ---------------- Info page: sun + moon + weather warnings ---------------- */
+/* ---------------- Info page: sun + moon ---------------- */
 
 @Composable
 fun InfoPage(ui: HomeUi, s: Scale) {
     Row(Modifier.fillMaxSize().padding(horizontal = s.dw(3f), vertical = s.dh(3f))) {
-        // Left: sun + moon
-        Column(Modifier.weight(1.05f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(s.dh(3f))) {
-            SunCard(ui, s, Modifier.weight(1.25f))
-            MoonCard(ui, s, Modifier.weight(1f))
-        }
+        SunCard(ui, s, Modifier.weight(1.25f).fillMaxHeight())
         Spacer(Modifier.width(s.dw(3f)))
-        // Right: weather warnings
-        WarningsCard(ui, s, Modifier.weight(1f).fillMaxHeight())
+        MoonCard(ui, s, Modifier.weight(1f).fillMaxHeight())
     }
 }
 
@@ -69,7 +54,7 @@ private fun SunCard(ui: HomeUi, s: Scale, modifier: Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("☀", color = Ark.Warm, fontSize = s.sh(4.2f))
             Spacer(Modifier.width(s.dw(1.2f)))
-            Text("Aurinko", color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f))
+            Text("Sun", color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f))
         }
         Spacer(Modifier.height(s.dh(1.6f)))
         // Sun arc
@@ -78,9 +63,9 @@ private fun SunCard(ui: HomeUi, s: Scale, modifier: Modifier) {
         }
         Spacer(Modifier.height(s.dh(1.6f)))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            SunStat("Nousu", ui.sunRise, Ark.Warm, s)
-            SunStat("Päivän pituus", ui.dayLen, Ark.Ink, s)
-            SunStat("Lasku", ui.sunSet, Ark.Cold, s)
+            SunStat("Sunrise", ui.sunRise, Ark.Warm, s)
+            SunStat("Day length", ui.dayLen, Ark.Ink, s)
+            SunStat("Sunset", ui.sunSet, Ark.Cold, s)
         }
     }
 }
@@ -144,15 +129,15 @@ private fun MoonCard(ui: HomeUi, s: Scale, modifier: Modifier) {
         MoonGlyph(ui.moonPhase, ui.moonIllum, Modifier.size(s.dh(13f)))
         Spacer(Modifier.width(s.dw(2.4f)))
         Column {
-            Text("Kuu", color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.3f))
+            Text("Moon", color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.3f))
             Spacer(Modifier.height(s.dh(0.4f)))
             Text(
                 ui.moonLabel.ifEmpty { "—" }.replaceFirstChar { it.uppercase() },
-                color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 1
+                color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 2
             )
             if (ui.moonIllum >= 0) {
                 Spacer(Modifier.height(s.dh(0.6f)))
-                Text("Valaistus ${ui.moonIllum} %", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.3f))
+                Text("Illumination ${ui.moonIllum} %", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.3f))
             }
         }
     }
@@ -196,85 +181,7 @@ private fun MoonGlyph(phase: Float, illum: Int, modifier: Modifier) {
     }
 }
 
-@Composable
-private fun WarningsCard(ui: HomeUi, s: Scale, modifier: Modifier) {
-    Column(
-        modifier.fillMaxWidth().background(Ark.Panel, RoundedCornerShape(20.dp))
-            .border(s.dh(0.16f), Ark.Line, RoundedCornerShape(20.dp)).padding(s.dw(2.2f))
-    ) {
-        Text("⚠ SÄÄVAROITUKSET", color = Ark.Warn, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.4f), maxLines = 1)
-        Spacer(Modifier.height(s.dh(1.4f)))
-        val scroll = rememberScrollState()
-        var lastTouchMs by remember { mutableStateOf(0L) }
-        // Auto-scroll (setting) when the content does not fit. A touch pauses the
-        // cycling for 15 seconds, and the duration is computed with Long arithmetic
-        // (maxValue can be Int.MAX_VALUE before the first measurement).
-        LaunchedEffect(ui.warnAutoScroll, ui.warnings.size) {
-            if (!ui.warnAutoScroll) return@LaunchedEffect
-            while (true) {
-                kotlinx.coroutines.delay(2500)
-                val max = scroll.maxValue
-                if (max <= 0 || max == Int.MAX_VALUE) continue
-                if (System.currentTimeMillis() - lastTouchMs < TOUCH_PAUSE_MS) continue
-                scroll.animateScrollTo(max, tween((max.toLong() * 14L).coerceIn(1500L, 9000L).toInt()))
-                kotlinx.coroutines.delay(2500)
-                if (System.currentTimeMillis() - lastTouchMs < TOUCH_PAUSE_MS) continue
-                scroll.animateScrollTo(0, tween(1200))
-            }
-        }
-        Column(
-            Modifier.fillMaxWidth().weight(1f).verticalScroll(scroll)
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            awaitPointerEvent(PointerEventPass.Initial)
-                            lastTouchMs = System.currentTimeMillis()
-                        }
-                    }
-                },
-            verticalArrangement = Arrangement.spacedBy(s.dh(1.4f))
-        ) {
-            if (ui.warnings.isEmpty()) {
-                Text("Ei voimassa olevia varoituksia", color = Ark.Faint, fontFamily = HankenGrotesk, fontSize = s.sh(2.4f))
-            }
-            for (w in ui.warnings) WarningRow(w, s)
-        }
-    }
-}
-
-@Composable
-private fun WarningRow(w: WarnUi, s: Scale) {
-    Row(
-        Modifier.fillMaxWidth().background(Ark.SensorPanel, RoundedCornerShape(12.dp)).padding(s.dw(1.6f)),
-        verticalAlignment = Alignment.Top
-    ) {
-        Box(Modifier.padding(top = s.dh(0.5f)).size(s.dw(1.1f)).height(s.dh(4f)).background(w.color, RoundedCornerShape(2.dp)))
-        Spacer(Modifier.width(s.dw(1.4f)))
-        Column(Modifier.weight(1f)) {
-            Text(w.main, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.6f))
-            if (w.area.isNotEmpty()) {
-                Spacer(Modifier.height(s.dh(0.4f)))
-                Text(w.area, color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.1f))
-            }
-            if (w.validity.isNotEmpty()) {
-                Spacer(Modifier.height(s.dh(0.3f)))
-                Text(w.validity, color = Ark.Faint, fontFamily = HankenGrotesk, fontSize = s.sh(1.9f))
-            }
-            if (w.description.isNotEmpty()) {
-                Spacer(Modifier.height(s.dh(0.6f)))
-                Text(w.description, color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.0f))
-            }
-        }
-    }
-}
-
-/** Pause applied to the auto-scroll cycling after a touch. */
-private const val TOUCH_PAUSE_MS = 15_000L
-
 private fun nowMinutes(): Int {
-    val c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Helsinki"))
+    val c = java.util.Calendar.getInstance()
     return c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)
 }
-
-private fun tween(durationMillis: Int): androidx.compose.animation.core.TweenSpec<Float> =
-    androidx.compose.animation.core.tween(durationMillis = durationMillis, easing = androidx.compose.animation.core.LinearEasing)

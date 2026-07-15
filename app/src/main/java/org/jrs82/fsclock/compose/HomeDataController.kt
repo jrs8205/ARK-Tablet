@@ -19,23 +19,17 @@ import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import org.jrs82.fsclock.Astronomy
-import org.jrs82.fsclock.ElectricityData
-import org.jrs82.fsclock.ElectricityRepository
-import org.jrs82.fsclock.FinnishHolidays
-import org.jrs82.fsclock.GeoPlace
+import org.jrs82.fsclock.GeocodingClient
+import org.jrs82.fsclock.MetNorwayRepository
 import org.jrs82.fsclock.OpenMeteoData
 import org.jrs82.fsclock.OpenMeteoRepository
-import org.jrs82.fsclock.R
 import org.jrs82.fsclock.SettingsManager
 import org.jrs82.fsclock.WeatherData
-import org.jrs82.fsclock.WeatherRepository
 import org.jrs82.fsclock.WeatherSnapshot
 import org.jrs82.fsclock.WeatherTextFormatter
-import org.jrs82.fsclock.WeatherWarning
-import org.jrs82.fsclock.ruuvi.RuuviRepository
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -48,8 +42,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Collects home screen data from the existing (Java) repositories and publishes it
- * as Compose state (uiState). Modeled after ClockController; the result goes into HomeUi.
+ * Collects home screen data from the (Java) repositories and publishes it
+ * as Compose state (uiState). All times use the device's local time zone.
  */
 class HomeDataController(activityCtx: Context) {
 
@@ -64,51 +58,30 @@ class HomeDataController(activityCtx: Context) {
     private val generation = AtomicLong(0L)
     private var wifiTickCount = 0
 
-    @Volatile private var fmiCache: WeatherData? = null
-    @Volatile private var fmiCacheKey: String = ""
+    @Volatile private var metCache: WeatherData? = null
+    @Volatile private var metCacheKey: String = ""
     @Volatile private var omCache: OpenMeteoData? = null
-    @Volatile private var elCache: ElectricityData? = null
-
-    private val ruuviListener = RuuviRepository.Listener { _, _ -> ui.post { renderSensors() } }
-    private val warningsListener =
-        org.jrs82.fsclock.WarningsRepository.Listener { w -> ui.post { renderWarnings(w) } }
 
     fun start() {
         if (!active.compareAndSet(false, true)) return
         generation.incrementAndGet()
         SettingsManager.get().init(ctx)
-        ensureFmiCacheKey(SettingsManager.get())
+        ensureMetCacheKey(SettingsManager.get())
         if (io == null) io = Executors.newSingleThreadExecutor()
+        val sm = SettingsManager.get()
         update { it.copy(
-            city = SettingsManager.get().homePlace, district = "",
-            warnAutoScroll = SettingsManager.get().warningsAutoScroll
+            city = if (sm.hasPlace()) sm.homePlace else "—",
+            country = sm.homeCountry,
+            needsPlace = !sm.hasPlace()
         ) }
-        computeHoliday()
         ui.post(deviceTick)
         ui.post(weatherTick)
-        ui.post(electricityTick)
-        ui.post(electricityRenderTick)
         ui.post(sunTick)
-        ui.post(sensorStalenessTick)
-        ui.post(holidayTick)
-        org.jrs82.fsclock.WarningsRepository.get().addListener(warningsListener)
-        ui.post(warningsTick)
-        val ruuvi = RuuviRepository.get(ctx)
-        ruuvi.start()
-        ruuvi.addListener(ruuviListener)
-        renderSensors()
-        if (hasLocationPermission()) fetchLocation()
     }
 
     fun stop() {
         if (!active.compareAndSet(true, false)) return
         generation.incrementAndGet()
-        try { org.jrs82.fsclock.WarningsRepository.get().removeListener(warningsListener) } catch (_: Exception) {}
-        try {
-            val ruuvi = RuuviRepository.get(ctx)
-            ruuvi.removeListener(ruuviListener)
-            ruuvi.stop()
-        } catch (_: Exception) {}
         ui.removeCallbacksAndMessages(null)
         io?.shutdownNow(); io = null
     }
@@ -133,48 +106,59 @@ class HomeDataController(activityCtx: Context) {
         }
     }
 
-    /** Location hookup: clears the FMI cache + fetches weather for the new coordinates right away (no new tick chain). */
-    fun setLocation(city: String, district: String) {
-        update { it.copy(city = city, district = district) }
-        resetFmiCache(SettingsManager.get())
+    // ---------------- Place ----------------
+
+    /** Stores the selected place and refreshes weather + sun for it right away. */
+    fun setPlace(place: PlaceUi) {
+        SettingsManager.get().setPlace(place.name, place.country, place.lat, place.lon)
+        update { it.copy(city = place.name, country = place.country, needsPlace = false) }
+        resetMetCache(SettingsManager.get())
         fetchWeatherNow(forceOm = true)
         computeSun()
     }
 
-    // ---------------- WiFi + battery ----------------
+    /** City search on the IO executor; the callback runs on the main thread
+     *  (null = network/parse error, empty list = no matches). */
+    fun searchCities(query: String, onResult: (List<PlaceUi>?) -> Unit) {
+        val exec = io
+        if (query.isBlank() || exec == null) { onResult(null); return }
+        exec.execute {
+            val result: List<PlaceUi>? = try {
+                GeocodingClient.search(query).map {
+                    PlaceUi(it.name, it.country, it.lat, it.lon, it.detail())
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "geocoding", e); null
+            }
+            ui.post { onResult(result) }
+        }
+    }
+
+    // ---------------- WiFi + battery + red tint ----------------
 
     private val deviceTick = object : Runnable {
         override fun run() {
             if (!active.get()) return
             if (wifiTickCount++ % 5 == 0) {
                 pushWifi()
-                pushModes()
+                pushRedTint()
             }
             pushBattery()
             ui.postDelayed(this, 1000L)
         }
     }
 
-    /** Night red tint + offline test mode (every 5 s — the test mode expires on its own). */
-    private fun pushModes() {
+    private fun pushRedTint() {
         try {
             val sm = SettingsManager.get()
-            val test = sm.activeTestMode
-            val night = when (test) {
-                SettingsManager.TEST_NIGHT -> true
-                SettingsManager.TEST_DAY -> false
-                else -> {
-                    val hour = Calendar.getInstance(HELSINKI_TZ, FI).get(Calendar.HOUR_OF_DAY)
-                    val morning = sm.morningHour
-                    val evening = sm.eveningHour
-                    if (evening >= morning) hour >= evening || hour < morning
-                    else hour >= evening && hour < morning
-                }
-            }
+            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            val morning = sm.morningHour
+            val evening = sm.eveningHour
+            val night = if (evening >= morning) hour >= evening || hour < morning
+                        else hour >= evening && hour < morning
             val red = night && sm.isNightRedTint
-            val offline = test == SettingsManager.TEST_OFFLINE
-            update { it.copy(redTint = red, testOffline = offline) }
-        } catch (e: Exception) { Log.w(TAG, "modes", e) }
+            update { it.copy(redTint = red) }
+        } catch (e: Exception) { Log.w(TAG, "redTint", e) }
     }
 
     @Suppress("DEPRECATION")
@@ -211,38 +195,38 @@ class HomeDataController(activityCtx: Context) {
         } catch (e: Exception) { Log.w(TAG, "battery", e) }
     }
 
-    // ---------------- Weather (FMI + Open-Meteo) ----------------
+    // ---------------- Weather (MET Norway + Open-Meteo) ----------------
 
     private val weatherTick = object : Runnable {
         override fun run() {
             if (!active.get()) return
-            if (!isOfflineTest()) fetchWeatherNow(forceOm = false)
+            fetchWeatherNow(forceOm = false)
             ui.postDelayed(this, 10L * 60_000L)
         }
     }
 
-    /** Offline test mode: network fetches are skipped, so the UI shows aging data. */
-    private fun isOfflineTest(): Boolean =
-        try { SettingsManager.get().activeTestMode == SettingsManager.TEST_OFFLINE } catch (e: Exception) { false }
-
     private fun fetchWeatherNow(forceOm: Boolean) {
         executeCurrent { run ->
             val sm = SettingsManager.get()
+            if (!sm.hasPlace()) {
+                update(run) { it.copy(needsPlace = true) }
+                return@executeCurrent
+            }
             val place = sm.homePlace
-            val key = ensureFmiCacheKey(sm)
+            val lat = sm.homeLatitude
+            val lon = sm.homeLongitude
+            val key = ensureMetCacheKey(sm)
             try {
-                val wd = WeatherRepository.get(ctx).fetchHome(fmiCache)
+                val wd = MetNorwayRepository.get(ctx).fetch(lat, lon)
                 if (!isCurrent(run) || weatherCacheKey(SettingsManager.get()) != key) return@executeCurrent
-                fmiCache = wd
-                fmiCacheKey = key
+                metCache = wd
+                metCacheKey = key
                 val fc = buildForecast()
-                update(run) { it.copy(fmi = snapshotToUi(WeatherSnapshot.fromFmi(wd.current, place, wd.fetchedAt)), forecast = fc) }
-            } catch (e: Exception) { Log.w(TAG, "fmi", e) }
+                update(run) { it.copy(met = snapshotToUi(WeatherSnapshot.fromMet(wd.current, place, wd.fetchedAt)), forecast = fc) }
+            } catch (e: Exception) { Log.w(TAG, "met", e) }
             if (!isCurrent(run) || weatherCacheKey(SettingsManager.get()) != key) return@executeCurrent
             try {
-                val om = if (sm.hasHomeCoordinates())
-                    OpenMeteoRepository.get(ctx).fetch(place, sm.homeLatitude, sm.homeLongitude, forceOm)
-                else OpenMeteoRepository.get(ctx).fetch(place)
+                val om = OpenMeteoRepository.get(ctx).fetch(place, lat, lon, forceOm)
                 if (!isCurrent(run) || weatherCacheKey(SettingsManager.get()) != key) return@executeCurrent
                 omCache = om
                 val h = nearestHour(om)
@@ -257,16 +241,16 @@ class HomeDataController(activityCtx: Context) {
 
     // ---------------- 7-day forecast ----------------
 
-    /** Groups FMI and Open-Meteo hours into days (like ClockController.renderForecastAll). */
+    /** Groups MET Norway and Open-Meteo hours into days. */
     private fun buildForecast(): List<DayForecastUi> {
-        val fmiByDay = sortedMapOf<Int, MutableMap<Int, HourRowUi>>()
+        val metByDay = sortedMapOf<Int, MutableMap<Int, HourRowUi>>()
         val omByDay = sortedMapOf<Int, MutableMap<Int, HourRowUi>>()
         val dayTs = HashMap<Int, Long>()
-        fmiCache?.let { wd ->
+        metCache?.let { wd ->
             for (h in wd.hours) {
                 val key = dayKey(h.timestamp)
                 val wind = if (!h.windSpeed.isNaN()) h.windSpeed else h.windGust
-                fmiByDay.getOrPut(key) { HashMap() }[h.hour] = HourRowUi(
+                metByDay.getOrPut(key) { HashMap() }[h.hour] = HourRowUi(
                     h.hour, nanToNull(h.temperature), null, nanToNull(wind), null,
                     nanToNull(h.precipitation), h.condition
                 )
@@ -284,43 +268,43 @@ class HomeDataController(activityCtx: Context) {
             }
         }
         val dayKeys = sortedSetOf<Int>()
-        dayKeys.addAll(fmiByDay.keys)
+        dayKeys.addAll(metByDay.keys)
         dayKeys.addAll(omByDay.keys)
+        val fmt = SimpleDateFormat("EEE d MMM", Locale.ENGLISH)
         val out = ArrayList<DayForecastUi>()
         for (dayK in dayKeys) {
             if (out.size >= 7) break
             val ts = dayTs[dayK] ?: continue
-            val cal = Calendar.getInstance(HELSINKI_TZ, FI)
-            cal.timeInMillis = ts
-            val label = "${WD[cal.get(Calendar.DAY_OF_WEEK) - 1]} ${cal.get(Calendar.DAY_OF_MONTH)}.${cal.get(Calendar.MONTH) + 1}."
-            val fmiMap = fmiByDay[dayK] ?: emptyMap()
+            val label = fmt.format(Date(ts))
+            val metMap = metByDay[dayK] ?: emptyMap()
             val omMap = omByDay[dayK] ?: emptyMap()
-            val hours = (fmiMap.keys + omMap.keys).toSortedSet().toList()
-            out.add(DayForecastUi(label, fmiMap, omMap, hours))
+            val hours = (metMap.keys + omMap.keys).toSortedSet().toList()
+            out.add(DayForecastUi(label, metMap, omMap, hours))
         }
         return out
     }
 
     private fun dayKey(ts: Long): Int {
-        val c = Calendar.getInstance(HELSINKI_TZ, FI)
+        val c = Calendar.getInstance()
         c.timeInMillis = ts
         return c.get(Calendar.YEAR) * 10000 + (c.get(Calendar.MONTH) + 1) * 100 + c.get(Calendar.DAY_OF_MONTH)
     }
 
     private fun nanToNull(v: Double): Float? = if (v.isNaN()) null else v.toFloat()
 
-    private fun ensureFmiCacheKey(sm: SettingsManager): String {
+    private fun ensureMetCacheKey(sm: SettingsManager): String {
         val key = weatherCacheKey(sm)
-        if (fmiCacheKey != key) {
-            fmiCache = null
-            fmiCacheKey = key
+        if (metCacheKey != key) {
+            metCache = null
+            metCacheKey = key
         }
         return key
     }
 
-    private fun resetFmiCache(sm: SettingsManager) {
-        fmiCache = null
-        fmiCacheKey = weatherCacheKey(sm)
+    private fun resetMetCache(sm: SettingsManager) {
+        metCache = null
+        omCache = null
+        metCacheKey = weatherCacheKey(sm)
     }
 
     private fun weatherCacheKey(sm: SettingsManager): String {
@@ -356,82 +340,7 @@ class HomeDataController(activityCtx: Context) {
         return bestH
     }
 
-    // ---------------- Electricity ----------------
-
-    private val electricityTick = object : Runnable {
-        override fun run() {
-            if (!active.get()) return
-            if (!isOfflineTest()) executeCurrent { run ->
-                try {
-                    val repo = ElectricityRepository.get(ctx)
-                    // Tomorrow's prices are published after 14:00 — bypass the TTL until they have arrived.
-                    val hourNow = Calendar.getInstance(HELSINKI_TZ, FI).get(Calendar.HOUR_OF_DAY)
-                    val data = if (hourNow >= 14 && !hasTomorrow(elCache)) repo.fetchNow() else repo.fetchIfStale()
-                    if (data != null) elCache = data
-                    ui.post { if (isCurrent(run)) renderElectricity() }
-                } catch (e: Exception) { Log.w(TAG, "electricity", e) }
-            }
-            ui.postDelayed(this, 15L * 60_000L)
-        }
-    }
-
-    /** Lightweight minute tick: updates the "now" quarter and the pill from cache without a network fetch. */
-    private val electricityRenderTick = object : Runnable {
-        override fun run() {
-            if (!active.get()) return
-            renderElectricity()
-            ui.postDelayed(this, 60_000L)
-        }
-    }
-
-    /** Has tomorrow actually been published? Nord Pool's CET trading day extends to
-     *  01:00 Finnish time, so "tomorrow" ALWAYS has 4 quarters (00:00–00:45)
-     *  before the actual publication. Therefore require at least 90/96 quarters. */
-    private fun hasTomorrow(data: ElectricityData?): Boolean {
-        if (data == null) return false
-        val c = Calendar.getInstance(HELSINKI_TZ, FI)
-        c.add(Calendar.DAY_OF_YEAR, 1)
-        val d = c.get(Calendar.DAY_OF_MONTH); val m = c.get(Calendar.MONTH) + 1; val y = c.get(Calendar.YEAR)
-        var count = 0
-        for (q in data.quarters) if (q.dayOfMonth == d && q.month == m && q.year == y) count++
-        return count >= MIN_PUBLISHED_QUARTERS
-    }
-
-    private fun renderElectricity() {
-        val data = elCache ?: return
-        val now = System.currentTimeMillis()
-        val cToday = Calendar.getInstance(HELSINKI_TZ, FI)
-        val cTomorrow = Calendar.getInstance(HELSINKI_TZ, FI)
-        cTomorrow.add(Calendar.DAY_OF_YEAR, 1)
-        val today = buildDayPrices("Tänään", data, cToday, now)
-        // The leading quarters leaked by the CET day (≤4) do not yet count as "tomorrow published".
-        var tomorrow = buildDayPrices("Huomenna", data, cTomorrow, now)
-        if (tomorrow != null && tomorrow.quarters.size < MIN_PUBLISHED_QUARTERS) tomorrow = null
-        var nowSnt: Float? = null
-        today?.quarters?.forEach { if (it.isNow) nowSnt = it.snt }
-        update { it.copy(elToday = today, elTomorrow = tomorrow, priceSnt = nowSnt ?: it.priceSnt) }
-    }
-
-    private fun buildDayPrices(label: String, data: ElectricityData, day: Calendar, nowMs: Long): DayPricesUi? {
-        val d = day.get(Calendar.DAY_OF_MONTH); val m = day.get(Calendar.MONTH) + 1; val y = day.get(Calendar.YEAR)
-        val list = ArrayList<QuarterUi>()
-        var min = Float.MAX_VALUE; var max = -Float.MAX_VALUE; var sum = 0.0
-        var minAt = ""; var maxAt = ""
-        for (q in data.quarters) {
-            if (q.dayOfMonth != d || q.month != m || q.year != y) continue
-            val snt = q.sntPerKwh.toFloat()
-            val lab = String.format(FI, "%02d:%02d", q.hour, q.minute)
-            val isNow = nowMs >= q.timestamp && nowMs < q.timestamp + 15L * 60_000L
-            list.add(QuarterUi(lab, snt, isNow))
-            sum += snt
-            if (snt < min) { min = snt; minAt = lab }
-            if (snt > max) { max = snt; maxAt = lab }
-        }
-        if (list.isEmpty()) return null
-        return DayPricesUi(label, list, min, max, (sum / list.size).toFloat(), minAt, maxAt)
-    }
-
-    // ---------------- Sun ----------------
+    // ---------------- Sun + moon ----------------
 
     private val sunTick = object : Runnable {
         override fun run() { if (!active.get()) return; computeSun(); ui.postDelayed(this, 60L * 60_000L) }
@@ -440,14 +349,8 @@ class HomeDataController(activityCtx: Context) {
     private fun computeSun() {
         try {
             val sm = SettingsManager.get()
-            val lat: Double; val lon: Double
-            if (sm.hasHomeCoordinates()) {
-                lat = sm.homeLatitude; lon = sm.homeLongitude
-            } else {
-                val place = GeoPlace.forPlace(sm.homePlace)
-                lat = place.latitude; lon = place.longitude
-            }
-            val astro = Astronomy.calculate(Date(), lat, lon, HELSINKI_TZ)
+            if (!sm.hasHomeCoordinates()) return
+            val astro = Astronomy.calculate(Date(), sm.homeLatitude, sm.homeLongitude, TimeZone.getDefault())
             update { it.copy(
                 sunRise = Astronomy.formatSunrise(astro.sun) ?: "—",
                 sunSet = Astronomy.formatSunset(astro.sun) ?: "—",
@@ -461,128 +364,34 @@ class HomeDataController(activityCtx: Context) {
         } catch (e: Exception) { Log.w(TAG, "sun", e) }
     }
 
-    // ---------------- Sensors ----------------
-
-    private val sensorStalenessTick = object : Runnable {
-        override fun run() { if (!active.get()) return; renderSensors(); ui.postDelayed(this, 60_000L) }
-    }
-
-    /** Shows ALL configured slots (MAC set); a stale/missing sample → "–"
-     *  (this also allows renaming it right away). */
-    private fun renderSensors() {
-        try {
-            val sm = SettingsManager.get()
-            val repo = RuuviRepository.get(ctx)
-            val now = System.currentTimeMillis()
-            val slots = listOf(
-                SettingsManager.RUUVI_SLOT_BEDROOM to R.string.sensor_label_bedroom,
-                SettingsManager.RUUVI_SLOT_LIVINGROOM to R.string.sensor_label_livingroom,
-                SettingsManager.RUUVI_SLOT_BALCONY to R.string.sensor_label_balcony
-            )
-            val list = ArrayList<SensorUi>()
-            for ((slot, labelRes) in slots) {
-                val mac = sm.getRuuviMac(slot) ?: continue
-                val name = sm.getRuuviName(slot, ctx.getString(labelRes))
-                val sample = repo.getLatest(mac)
-                val tC = sample?.temperatureC()
-                val fresh = sample != null && tC != null && now - sample.timestamp <= 15L * 60_000L
-                if (sample != null && tC != null && fresh)
-                    list.add(SensorUi(slot, name, tC.toFloat(), sample.humidityPct()?.toFloat()))
-                else
-                    list.add(SensorUi(slot, name, null, null))
-            }
-            update { it.copy(sensors = list) }
-        } catch (e: Exception) { Log.w(TAG, "sensors", e) }
-    }
-
-    fun setSensorName(slot: String, name: String) {
-        SettingsManager.get().setRuuviName(slot, name)
-        renderSensors()
-    }
-
-    /** Called by the settings page when sensor assignments/names have changed. */
-    fun refreshSensors() {
-        renderSensors()
-    }
-
-    // ---------------- Warnings ----------------
-
-    private val warningsTick = object : Runnable {
-        override fun run() {
-            if (!active.get()) return
-            executeCurrent { try { org.jrs82.fsclock.WarningsRepository.get().refreshIfStale() } catch (_: Exception) {} }
-            ui.postDelayed(this, 15L * 60_000L)
-        }
-    }
-
-    private fun renderWarnings(warnings: List<WeatherWarning>?) {
-        val list = ArrayList<WarnUi>()
-        // Test-warning test mode: inject an artificial warning at the top of the list.
-        if (SettingsManager.get().activeTestMode == SettingsManager.TEST_WARNING) {
-            list.add(WarnUi("TESTIVAROITUS", "Testitila — ei oikea varoitus", "",
-                "Tämä varoitus on kytketty päälle asetusten testinapista ja poistuu itsestään 30 minuutissa.",
-                Color(0xFFE6C32E)))
-        }
-        if (warnings != null) {
-            for (w in warnings) {
-                val validity = if (w.expiresMs > 0L) "voimassa ${fmtDay(w.expiresMs)} asti" else ""
-                val event = if (w.event.isNullOrBlank()) "Säävaroitus" else w.event
-                list.add(WarnUi(event, w.areaDesc ?: "", validity, w.description ?: "", Color(w.level.color)))
-            }
-        }
-        update { it.copy(warnings = list) }
-    }
-
-    // ---------------- Holiday (checked hourly 24/7) ----------------
-
-    private val holidayTick = object : Runnable {
-        override fun run() { if (!active.get()) return; computeHoliday(); ui.postDelayed(this, 60L * 60_000L) }
-    }
-
-    private fun computeHoliday() {
-        try {
-            val from = Calendar.getInstance(HELSINKI_TZ, FI)
-            val hols = FinnishHolidays.upcoming(from, 1)
-            if (hols.isEmpty()) { update { it.copy(holiday = null) }; return }
-            val h = hols[0]
-            val cal = Calendar.getInstance(HELSINKI_TZ, FI)
-            cal.set(h.year, h.month - 1, h.day, 0, 0, 0)
-            val wd = WD[cal.get(Calendar.DAY_OF_WEEK) - 1]
-            update { it.copy(holiday = "${h.name} · $wd ${h.day}.${h.month}.") }
-        } catch (e: Exception) { Log.w(TAG, "holiday", e) }
-    }
-
-    private fun fmtDay(ms: Long): String {
-        val c = Calendar.getInstance(HELSINKI_TZ, FI); c.timeInMillis = ms
-        return "${c.get(Calendar.DAY_OF_MONTH)}.${c.get(Calendar.MONTH) + 1}."
-    }
-
-    // ---------------- Location (GPS + reverse geocoding) ----------------
+    // ---------------- Device location ("Use device location") ----------------
 
     fun hasLocationPermission(): Boolean =
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-    fun fetchLocation() {
-        if (!hasLocationPermission()) return
-        // GPS tracking disabled (or the user set the home place manually) → do not overwrite.
-        if (!SettingsManager.get().isFollowGpsLocation) return
-        executeCurrent { run ->
+    /** One-shot device locate + reverse geocode; stores the result as the place.
+     *  The callback runs on the main thread with true on success. */
+    fun useDeviceLocation(onResult: (Boolean) -> Unit) {
+        if (!hasLocationPermission()) { onResult(false); return }
+        val exec = io
+        if (exec == null) { onResult(false); return }
+        exec.execute {
+            var ok = false
             try {
-                val loc = bestLocation() ?: return@executeCurrent
-                // MML provides the Finnish district (Android Geocoder does not); Geocoder as fallback.
-                val pair = reverseMml(loc.latitude, loc.longitude)
-                    ?: reverseGeocode(loc.latitude, loc.longitude)
-                    ?: return@executeCurrent
-                if (!isCurrent(run)) return@executeCurrent
-                val city = pair.first; val district = pair.second
-                val sm = SettingsManager.get()
-                sm.setHomePlace(city)
-                sm.setHomeCoordinates(loc.latitude, loc.longitude)
-                GeoPlace.register(city, loc.latitude, loc.longitude)
-                if (district.isNotEmpty()) GeoPlace.register("$city, $district", loc.latitude, loc.longitude)
-                ui.post { if (isCurrent(run)) setLocation(city, district) }
+                val loc = bestLocation()
+                if (loc != null) {
+                    val pair = reverseGeocode(loc.latitude, loc.longitude)
+                    if (pair != null) {
+                        ui.post {
+                            setPlace(PlaceUi(pair.first, pair.second, loc.latitude, loc.longitude))
+                        }
+                        ok = true
+                    }
+                }
             } catch (e: Exception) { Log.w(TAG, "location", e) }
+            val success = ok
+            ui.post { onResult(success) }
         }
     }
 
@@ -625,49 +434,25 @@ class HomeDataController(activityCtx: Context) {
         return holder[0]
     }
 
-    /** MML reverse geocoding (city + district). null if no API key or on error. */
-    private fun reverseMml(lat: Double, lon: Double): Pair<String, String>? {
-        if (!org.jrs82.fsclock.MmlReverseGeocoder.isConfigured()) return null
-        return try {
-            val r = org.jrs82.fsclock.MmlReverseGeocoder.reverse(lat, lon) ?: return null
-            val city = r[0]
-            if (city.isBlank()) return null
-            Log.w(TAG, "mml city=${r[0]} district=${r[1]}")
-            Pair(city, r[1])
-        } catch (e: Exception) { Log.w(TAG, "mml", e); null }
-    }
-
+    /** Android Geocoder → (city, country). null when the geocoder is missing or has no result. */
     @Suppress("DEPRECATION")
     private fun reverseGeocode(lat: Double, lon: Double): Pair<String, String>? {
         if (!Geocoder.isPresent()) return null
         return try {
-            val geo = Geocoder(ctx, FI)
-            val addrs = geo.getFromLocation(lat, lon, 3) ?: return null
+            val geo = Geocoder(ctx, Locale.ENGLISH)
+            val addrs = geo.getFromLocation(lat, lon, 1) ?: return null
             if (addrs.isEmpty()) return null
             val a = addrs[0]
             var city = a.locality
             if (city.isNullOrBlank()) city = a.subAdminArea
             if (city.isNullOrBlank()) city = a.adminArea
-            val cityName = if (city.isNullOrBlank()) return null else city
-            // Find the district from all results: subLocality is the best source.
-            var district = ""
-            for (a2 in addrs) {
-                val cand = a2.subLocality
-                if (!cand.isNullOrBlank() && !cand.equals(cityName, ignoreCase = true) && cand.none { it.isDigit() }) {
-                    district = cand; break
-                }
-            }
-            Pair(cityName, district)
+            if (city.isNullOrBlank()) return null
+            Pair(city, a.countryName ?: "")
         } catch (e: Exception) { Log.w(TAG, "geocode", e); null }
     }
 
     companion object {
         private const val TAG = "HomeDataController"
-        /** Number of quarters (out of 96) after which tomorrow is considered published. */
-        private const val MIN_PUBLISHED_QUARTERS = 90
-        private val FI = Locale.Builder().setLanguage("fi").setRegion("FI").build()
-        private val HELSINKI_TZ = TimeZone.getTimeZone("Europe/Helsinki")
-        private val WD = arrayOf("su", "ma", "ti", "ke", "to", "pe", "la")
         private fun bandLabel(freqMhz: Int): String = when {
             freqMhz <= 0 -> ""
             freqMhz < 2500 -> "2.4 GHz"

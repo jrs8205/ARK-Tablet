@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Hourly response from Open-Meteo. Used in the extended weather view side by side
- *  with the FMI forecast, and a single-hour cross-section can be converted into a
+ *  with the MET Norway forecast, and a single-hour cross-section can be converted into a
  *  {@link WeatherSnapshot} for the front page's current-conditions comparison. */
 public class OpenMeteoData {
 

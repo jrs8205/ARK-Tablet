@@ -52,9 +52,6 @@ object Ark {
     val Good = Color(0xFF1FD6A6)
     val Warn = Color(0xFFFF4D8D)
     val Accent = Color(0xFF23D6FF)
-    val PriceText = Color(0xFF1C1200)
-    val PriceLab = Color(0xFF241400)
-    val PriceUnit = Color(0xFF301A00)
     val SourceText = Color(0xFF04221A)
     val OpenMeteoText = Color(0xFF041B22)
     val WarnMain = Color(0xFFFFD0E0)
@@ -85,18 +82,6 @@ fun tempColor(t: Float?): Color {
 }
 
 /** Electricity price: low green → high red (pill background). */
-fun priceColor(snt: Float): Color {
-    fun c(r: Int, g: Int, b: Int) = Color(r, g, b)
-    return when {
-        snt <= 5f -> c(0x5F, 0xD0, 0x8A)
-        snt <= 10f -> c(lerp(0x5F, 0xFF, (snt - 5) / 5), lerp(0xD0, 0xC2, (snt - 5) / 5), lerp(0x8A, 0x3D, (snt - 5) / 5))
-        snt <= 15f -> c(lerp(0xFF, 0xFF, (snt - 10) / 5), lerp(0xC2, 0x9A, (snt - 10) / 5), lerp(0x3D, 0x2E, (snt - 10) / 5))
-        snt <= 20f -> c(lerp(0xFF, 0xFF, (snt - 15) / 5), lerp(0x9A, 0x5C, (snt - 15) / 5), lerp(0x2E, 0x5C, (snt - 15) / 5))
-        else -> c(0xFF, 0x5C, 0x5C)
-    }
-}
-
-/** WiFi bar color for level 1..5: red → yellow → green. */
 fun wifiColor(level: Int): Color {
     val t = (level - 1) / 4f
     return if (t <= 0.5f)

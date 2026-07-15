@@ -2,10 +2,10 @@ package org.jrs82.fsclock;
 
 import android.content.Context;
 
-/** Builds a Finnish-language text label from the WeatherCondition model.
+/** Builds a text label from the WeatherCondition model.
  *  The texts come from strings.xml — no hardcoded strings here.
  *  A user-visible weather description that works regardless of the data source
- *  (FMI SmartSymbol, WeatherSymbol3, wawa observation, fallback inference). */
+ *  (MET Norway symbol_code, WMO weather code, fallback inference). */
 public final class WeatherTextFormatter {
 
     private WeatherTextFormatter() {}
@@ -75,7 +75,7 @@ public final class WeatherTextFormatter {
     }
 
     /** Short label for the cramped hour cell. Intensity is not broken out
-     *  for showers (all "Sadekuuroja" / "Lumikuuroja" / "Räntäkuuroja"). */
+     *  for showers (one label per shower kind). */
     public static String shortLabel(Context ctx, WeatherCondition c) {
         if (c == null) return ctx.getString(R.string.wts_unknown);
         switch (c.type) {

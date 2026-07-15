@@ -23,23 +23,29 @@ public class OpenMeteoClient {
     private static final String TAG = "OpenMeteoClient";
     private static final String BASE = "https://api.open-meteo.com/v1/forecast";
     private static final int TIMEOUT_MS = 15000;
-    private final GeoPlace place;
+    private final String placeName;
+    private final double latitude;
+    private final double longitude;
 
-    public OpenMeteoClient(GeoPlace place) {
-        this.place = place;
+    public OpenMeteoClient(String placeName, double latitude, double longitude) {
+        this.placeName = placeName;
+        this.latitude = latitude;
+        this.longitude = longitude;
     }
 
     public OpenMeteoData fetch() throws Exception {
-        OpenMeteoData data = new OpenMeteoData(place.name);
+        OpenMeteoData data = new OpenMeteoData(placeName);
 
         String url = BASE
-                + "?latitude=" + place.latitude
-                + "&longitude=" + place.longitude
+                + "?latitude=" + latitude
+                + "&longitude=" + longitude
                 + "&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,"
                 + "precipitation,cloud_cover,wind_speed_10m,wind_gusts_10m,wind_direction_10m,"
                 + "shortwave_radiation,weather_code,is_day"
                 + "&wind_speed_unit=ms"
-                + "&timezone=Europe%2FHelsinki"
+                // auto = the local time zone of the requested coordinates; the parser
+                // reads the resolved zone from the response.
+                + "&timezone=auto"
                 // unixtime = unambiguous UTC epoch; iso8601 local times would be
                 // ambiguous when clocks fall back to winter time (03:00 occurs twice).
                 + "&timeformat=unixtime"
@@ -49,7 +55,7 @@ public class OpenMeteoClient {
         String body = httpGet(url);
         parse(body, data);
         data.fetchedAt = System.currentTimeMillis();
-        Log.d(TAG, "OpenMeteo " + place.name + " — " + data.hours.size() + " tuntia");
+        Log.d(TAG, "OpenMeteo " + placeName + " — " + data.hours.size() + " hours");
         return data;
     }
 
@@ -81,7 +87,7 @@ public class OpenMeteoClient {
         if (!root.has("hourly")) return;
         JSONObject h = root.getJSONObject("hourly");
 
-        String tz = root.optString("timezone", "Europe/Helsinki");
+        String tz = root.optString("timezone", TimeZone.getDefault().getID());
         TimeZone zone = TimeZone.getTimeZone(tz);
         SimpleDateFormat iso = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US);
         iso.setTimeZone(zone);

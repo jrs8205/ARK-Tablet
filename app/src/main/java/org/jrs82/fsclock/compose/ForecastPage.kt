@@ -30,7 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 
-/* ---------------- 7-day forecast: day selector + FMI/OM hours ---------------- */
+/* ---------------- 7-day forecast: day selector + MET/OM hours ---------------- */
 
 @Composable
 fun ForecastPage(ui: HomeUi, s: Scale) {
@@ -39,7 +39,7 @@ fun ForecastPage(ui: HomeUi, s: Scale) {
     Column(Modifier.fillMaxSize().padding(horizontal = s.dw(2.6f), vertical = s.dh(2f))) {
         if (days.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Ennustetta ei vielä saatavilla", color = Ark.Faint, fontFamily = HankenGrotesk, fontSize = s.sh(3f))
+                Text("Forecast not available yet", color = Ark.Faint, fontFamily = HankenGrotesk, fontSize = s.sh(3f))
             }
             return
         }
@@ -53,16 +53,16 @@ fun ForecastPage(ui: HomeUi, s: Scale) {
         val day = days[sel.coerceIn(0, days.size - 1)]
         // Source headers
         Row(Modifier.fillMaxWidth()) {
-            SourceTag("Ilmatieteen laitos", Ark.Good, Ark.SourceText, s, Modifier.weight(1f))
+            SourceTag("MET Norway (Yr)", Ark.Good, Ark.SourceText, s, Modifier.weight(1f))
             Spacer(Modifier.width(s.dw(2f)))
             SourceTag("Open-Meteo", Ark.Cold, Ark.OpenMeteoText, s, Modifier.weight(1f))
         }
         Spacer(Modifier.height(s.dh(1.2f)))
-        // Hour rows (shared scrolling, FMI left / OM right)
+        // Hour rows (shared scrolling, MET Norway left / OM right)
         val scroll = rememberScrollState()
         Row(Modifier.fillMaxWidth().weight(1f).verticalScroll(scroll)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dh(0.5f))) {
-                for (h in day.hours) FmiHourRow(h, day.fmi[h], s)
+                for (h in day.hours) MetHourRow(h, day.met[h], s)
             }
             Spacer(Modifier.width(s.dw(2f)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dh(0.5f))) {
@@ -95,7 +95,7 @@ private fun SourceTag(text: String, bg: Color, fg: Color, s: Scale, modifier: Mo
 }
 
 @Composable
-private fun FmiHourRow(hour: Int, row: HourRowUi?, s: Scale) {
+private fun MetHourRow(hour: Int, row: HourRowUi?, s: Scale) {
     Row(
         Modifier.fillMaxWidth().background(Ark.SensorPanel.copy(alpha = 0.5f), RoundedCornerShape(9.dp)).padding(horizontal = s.dw(1.2f), vertical = s.dh(0.7f)),
         verticalAlignment = Alignment.CenterVertically
@@ -103,7 +103,7 @@ private fun FmiHourRow(hour: Int, row: HourRowUi?, s: Scale) {
         HourLabel(hour, s)
         WxIcon(row, s)
         Spacer(Modifier.width(s.dw(0.8f)))
-        Text(fiUnit(row?.temp, 0, "°"), color = tempColor(row?.temp), fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 1, modifier = Modifier.width(s.dw(6f)))
+        Text(numUnit(row?.temp, 0, "°"), color = tempColor(row?.temp), fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 1, modifier = Modifier.width(s.dw(6f)))
         Spacer(Modifier.weight(1f))
         Text(windText(row?.wind), color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2f), maxLines = 1)
         Spacer(Modifier.width(s.dw(1.2f)))
@@ -120,7 +120,7 @@ private fun OmHourRow(hour: Int, row: HourRowUi?, s: Scale) {
         HourLabel(hour, s)
         WxIcon(row, s)
         Spacer(Modifier.width(s.dw(0.8f)))
-        Text(fiUnit(row?.temp, 0, "°"), color = tempColor(row?.temp), fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 1, modifier = Modifier.width(s.dw(6f)))
+        Text(numUnit(row?.temp, 0, "°"), color = tempColor(row?.temp), fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 1, modifier = Modifier.width(s.dw(6f)))
         Spacer(Modifier.weight(1f))
         Text(humText(row?.hum), color = Color(0xFF5AC8FF), fontFamily = HankenGrotesk, fontSize = s.sh(2f), maxLines = 1)
         Spacer(Modifier.width(s.dw(1f)))
@@ -150,6 +150,6 @@ private fun WxIcon(row: HourRowUi?, s: Scale) {
     }
 }
 
-private fun windText(w: Float?): String = if (w == null || w.isNaN()) "" else "💨 " + fi(w, 0) + " m/s"
-private fun rainText(p: Float?): String = if (p == null || p.isNaN() || p < 0.05f) "" else "☔ " + fi(p, 1) + " mm"
-private fun humText(h: Float?): String = if (h == null || h.isNaN()) "" else "💧 " + fi(h, 0) + " %"
+private fun windText(w: Float?): String = if (w == null || w.isNaN()) "" else "💨 " + num(w, 0) + " m/s"
+private fun rainText(p: Float?): String = if (p == null || p.isNaN() || p < 0.05f) "" else "☔ " + num(p, 1) + " mm"
+private fun humText(h: Float?): String = if (h == null || h.isNaN()) "" else "💧 " + num(h, 0) + " %"

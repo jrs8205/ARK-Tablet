@@ -68,11 +68,4 @@ public class WeatherData {
         return tC;
     }
 
-    public static String windDirToCompass(double deg) {
-        if (Double.isNaN(deg)) return "";
-        String[] dirs = {"Pohjoinen", "Koillinen", "Itä", "Kaakko",
-                "Etelä", "Lounas", "Länsi", "Luode"};
-        int idx = (int) Math.round(((deg % 360) / 45.0)) % 8;
-        return dirs[idx];
-    }
 }

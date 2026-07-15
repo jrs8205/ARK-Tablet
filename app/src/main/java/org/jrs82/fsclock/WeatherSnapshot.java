@@ -1,12 +1,12 @@
 package org.jrs82.fsclock;
 
-/** Source-neutral weather cross-section. FMI and Open-Meteo data are
- *  abstracted into this so the front page and the super-weather view can show
- *  both without source-specific code. Boxed Doubles express a missing value
- *  as null; primitives cannot distinguish NaN from a genuine zero. */
+/** Source-neutral weather cross-section. MET Norway and Open-Meteo data are
+ *  abstracted into this so the front page can show both without
+ *  source-specific code. Boxed Doubles express a missing value as null;
+ *  primitives cannot distinguish NaN from a genuine zero. */
 public final class WeatherSnapshot {
 
-    public enum Source { FMI, OPEN_METEO }
+    public enum Source { MET_NORWAY, OPEN_METEO }
 
     public final Source source;
     public final String placeName;
@@ -43,10 +43,9 @@ public final class WeatherSnapshot {
         this.condition = b.condition != null ? b.condition : WeatherCondition.unknown();
     }
 
-    /** Converts the FMI model (WeatherData.Current) into the neutral model.
-     *  Called in WeatherRepository when an observation cycle completes. */
-    public static WeatherSnapshot fromFmi(WeatherData.Current c, String placeName, long fetchedAt) {
-        return new Builder(Source.FMI, placeName, c.timestamp, fetchedAt)
+    /** Converts the MET Norway model (WeatherData.Current) into the neutral model. */
+    public static WeatherSnapshot fromMet(WeatherData.Current c, String placeName, long fetchedAt) {
+        return new Builder(Source.MET_NORWAY, placeName, c.timestamp, fetchedAt)
                 .temperature(boxed(c.temperature))
                 .feelsLike(boxed(c.feelsLike))
                 .humidity(boxed(c.humidity))
@@ -65,9 +64,9 @@ public final class WeatherSnapshot {
         return Double.isNaN(v) ? null : v;
     }
 
-    /** Neutral snapshot based on an Open-Meteo hourly row. Used in the super-weather
-     *  view for a single-hour comparison alongside the FMI snapshot. rain24h is left
-     *  null because an individual Open-Meteo hour has no 24 h accumulation. */
+    /** Neutral snapshot based on an Open-Meteo hourly row, compared alongside the
+     *  MET Norway snapshot. rain24h is left null because an individual
+     *  Open-Meteo hour has no 24 h accumulation. */
     public static WeatherSnapshot fromOpenMeteo(OpenMeteoData.Hour h, String placeName,
                                                  long fetchedAt) {
         return new Builder(Source.OPEN_METEO, placeName, h.timestamp, fetchedAt)

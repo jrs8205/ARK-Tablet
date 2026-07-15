@@ -16,18 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +39,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
@@ -52,23 +47,21 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/* ---------------- Clock text (live, second precision) ---------------- */
+/* ---------------- Clock text (live, second precision, device time zone) ---------------- */
 
 private data class ClockText(val time: String, val sec: String, val date: String)
 
-private val helsinkiZone: ZoneId = ZoneId.of("Europe/Helsinki")
-private val fiLocale = Locale.Builder().setLanguage("fi").setRegion("FI").build()
-private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", fiLocale)
-private val secondFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("ss", fiLocale)
-private val dateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d.M.yyyy", fiLocale)
+private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
+private val secondFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("ss", Locale.ENGLISH)
+private val dateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.ENGLISH)
 
 @Composable
 private fun rememberClockText(): ClockText {
-    var now by remember { mutableStateOf(ZonedDateTime.now(helsinkiZone)) }
+    var now by remember { mutableStateOf(ZonedDateTime.now(ZoneId.systemDefault())) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000L - System.currentTimeMillis() % 1000L)
-            now = ZonedDateTime.now(helsinkiZone)
+            now = ZonedDateTime.now(ZoneId.systemDefault())
         }
     }
     return ClockText(
@@ -85,12 +78,11 @@ fun HomeScreen(
     ui: HomeUi,
     page: Page,
     onPage: (Page) -> Unit = {},
-    onRename: (String, String) -> Unit = { _, _ -> },
     onBrightnessChanged: () -> Unit = {},
-    ensureBleScan: () -> Boolean = { true },
-    onSensorsChanged: () -> Unit = {},
+    onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit = { _, cb -> cb(null) },
+    onPickPlace: (PlaceUi) -> Unit = {},
+    onUseDeviceLocation: ((Boolean) -> Unit) -> Unit = { it(false) },
 ) {
-    var renaming by remember { mutableStateOf<SensorUi?>(null) }
     Box(
         Modifier.fillMaxSize().background(
             Brush.linearGradient(
@@ -107,18 +99,16 @@ fun HomeScreen(
                 TopBar(ui, s, page, onPage)
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (page) {
-                        Page.HOME -> HomePage(ui, s) { renaming = it }
+                        Page.HOME -> HomePage(ui, s)
                         Page.INFO -> InfoPage(ui, s)
                         Page.FORECAST -> ForecastPage(ui, s)
-                        Page.ELECTRICITY -> ElectricityPage(ui, s)
                         Page.SETTINGS -> SettingsPage(
                             s = s,
-                            onOpenHistory = { onPage(Page.HISTORY) },
                             onBrightnessChanged = onBrightnessChanged,
-                            ensureBleScan = ensureBleScan,
-                            onSensorsChanged = onSensorsChanged,
+                            onSearchCities = onSearchCities,
+                            onPickPlace = onPickPlace,
+                            onUseDeviceLocation = onUseDeviceLocation,
                         )
-                        Page.HISTORY -> HistoryPage(s)
                     }
                 }
             }
@@ -128,7 +118,6 @@ fun HomeScreen(
             Box(Modifier.fillMaxSize().background(Color(0x4DFF2A00)))
         }
     }
-    renaming?.let { sensor -> RenameDialog(sensor, onRename) { renaming = null } }
 }
 
 /* ---------------- Top bar ---------------- */
@@ -144,13 +133,13 @@ private fun TopBar(ui: HomeUi, s: Scale, page: Page, onPage: (Page) -> Unit) {
             Modifier.fillMaxWidth().weight(1f).padding(horizontal = s.dw(2.4f)),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Place on two lines (city / district)
+            // Place on two lines (city / country)
             Icon(Icons.Filled.Place, null, tint = Ark.Accent, modifier = Modifier.size(s.dh(3.2f)))
             Spacer(Modifier.width(s.dw(0.8f)))
             Column {
                 Text(ui.city, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.7f), maxLines = 1)
-                if (ui.district.isNotEmpty()) {
-                    Text(ui.district, color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.1f), maxLines = 1)
+                if (ui.country.isNotEmpty()) {
+                    Text(ui.country, color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.1f), maxLines = 1)
                 }
             }
             Spacer(Modifier.width(s.dw(2.4f)))
@@ -166,12 +155,9 @@ private fun TopBar(ui: HomeUi, s: Scale, page: Page, onPage: (Page) -> Unit) {
 
             Spacer(Modifier.weight(1f))
 
-            PricePill(ui.priceSnt, s) { onPage(Page.ELECTRICITY) }
-            Spacer(Modifier.width(s.dw(1.4f)))
-            NavButton("Koti", page == Page.HOME, s, Icons.Filled.Home) { onPage(Page.HOME) }
-            NavButton("Tiedot", page == Page.INFO, s, Icons.Filled.Info) { onPage(Page.INFO) }
-            NavButton("7 vrk", page == Page.FORECAST, s, null) { onPage(Page.FORECAST) }
-            NavButton("Sähkö", page == Page.ELECTRICITY, s, null) { onPage(Page.ELECTRICITY) }
+            NavButton("Home", page == Page.HOME, s, Icons.Filled.Home) { onPage(Page.HOME) }
+            NavButton("Info", page == Page.INFO, s, Icons.Filled.Info) { onPage(Page.INFO) }
+            NavButton("7-day", page == Page.FORECAST, s, null) { onPage(Page.FORECAST) }
             Spacer(Modifier.width(s.dw(0.4f)))
             // Large tap target (48dp class) — a bare 3.4dh icon was too small for a finger.
             Box(
@@ -179,8 +165,8 @@ private fun TopBar(ui: HomeUi, s: Scale, page: Page, onPage: (Page) -> Unit) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Filled.Settings, "Asetukset",
-                    tint = if (page == Page.SETTINGS || page == Page.HISTORY) Ark.Accent else Ark.Faint,
+                    Icons.Filled.Settings, "Settings",
+                    tint = if (page == Page.SETTINGS) Ark.Accent else Ark.Faint,
                     modifier = Modifier.size(s.dh(3.4f))
                 )
             }
@@ -209,7 +195,8 @@ private fun BatteryGlyph(pct: Int, charging: Boolean, s: Scale) {
     val fillCol = when { pct <= 15 -> Color(0xFFFF5C5C); pct <= 35 -> Ark.Warm; else -> Ark.Good }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
-            Modifier.width(s.dw(2.6f)).height(s.dh(2.0f)).border(s.dh(0.18f), Ark.Muted, RoundedCornerShape(2.dp)).padding(s.dh(0.3f)),
+            Modifier.width(s.dw(2.6f)).height(s.dh(2.0f))
+                .border(s.dh(0.18f), Ark.Muted, RoundedCornerShape(2.dp)).padding(s.dh(0.3f)),
             contentAlignment = Alignment.CenterStart
         ) {
             Box(Modifier.fillMaxHeight().fillMaxWidth(pct.coerceIn(0, 100) / 100f).background(fillCol, RoundedCornerShape(1.dp)))
@@ -220,21 +207,6 @@ private fun BatteryGlyph(pct: Int, charging: Boolean, s: Scale) {
             Spacer(Modifier.width(s.dw(0.3f)))
         }
         Text("$pct %", color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2f), maxLines = 1)
-    }
-}
-
-@Composable
-private fun PricePill(snt: Float?, s: Scale, onClick: () -> Unit) {
-    val bg = if (snt != null) priceColor(snt) else Ark.Warm
-    Row(
-        Modifier.clickable(onClick = onClick).background(bg, RoundedCornerShape(999.dp)).padding(horizontal = s.dw(1.4f), vertical = s.dh(0.7f)),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        Text("Sähkö nyt", color = Ark.PriceLab, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(1.7f))
-        Spacer(Modifier.width(s.dw(0.6f)))
-        Text(fi(snt, 3), color = Ark.PriceText, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.9f))
-        Spacer(Modifier.width(s.dw(0.4f)))
-        Text("snt/kWh", color = Ark.PriceUnit, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(1.9f))
     }
 }
 
@@ -256,14 +228,14 @@ private fun NavButton(label: String, active: Boolean, s: Scale, leading: android
 /* ---------------- Home page ---------------- */
 
 @Composable
-private fun HomePage(ui: HomeUi, s: Scale, onSensorClick: (SensorUi) -> Unit) {
+private fun HomePage(ui: HomeUi, s: Scale) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().weight(1f)) {
             ClockCol(ui, s, Modifier.weight(1.42f).fillMaxHeight())
             Box(Modifier.fillMaxHeight().width(s.dh(0.12f)).background(Ark.Line))
             WeatherCol(ui, s, Modifier.weight(1f).fillMaxHeight())
         }
-        SensorBand(ui, s, onSensorClick)
+        SunMoonBand(ui, s)
     }
 }
 
@@ -289,18 +261,6 @@ private fun ClockCol(ui: HomeUi, s: Scale, modifier: Modifier) {
         }
         Spacer(Modifier.height(s.dh(2.2f)))
         Text(clock.date, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(4.4f), maxLines = 1)
-        if (ui.testOffline) {
-            Spacer(Modifier.height(s.dh(1.2f)))
-            Text("⚠ OFFLINE-TESTITILA — verkkohaut ohitetaan", color = Ark.Warm, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.2f), maxLines = 1)
-        }
-        if (ui.holiday != null) {
-            Spacer(Modifier.height(s.dh(1.8f)))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(s.dw(0.8f)).background(Ark.Warm, CircleShape))
-                Spacer(Modifier.width(s.dw(0.8f)))
-                Text(ui.holiday, color = Ark.Warm, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.5f), maxLines = 1)
-            }
-        }
     }
 }
 
@@ -310,11 +270,23 @@ private fun WeatherCol(ui: HomeUi, s: Scale, modifier: Modifier) {
         modifier.padding(horizontal = s.dw(3.4f)),
         verticalArrangement = Arrangement.Center
     ) {
-        WeatherBlock("Ilmatieteen laitos", ui.fmi, Ark.Good, Ark.SourceText, s)
-        Spacer(Modifier.height(s.dh(1.6f)))
-        Box(Modifier.fillMaxWidth().height(s.dh(0.12f)).background(Ark.Line))
-        Spacer(Modifier.height(s.dh(1.6f)))
-        WeatherBlock("OPEN-METEO", ui.om, Ark.Cold, Ark.OpenMeteoText, s)
+        if (ui.needsPlace) {
+            Text(
+                "No location set",
+                color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(3.6f)
+            )
+            Spacer(Modifier.height(s.dh(1.2f)))
+            Text(
+                "Open Settings (⚙) and search for your city to get weather.",
+                color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.6f)
+            )
+        } else {
+            WeatherBlock("MET NORWAY (YR)", ui.met, Ark.Good, Ark.SourceText, s)
+            Spacer(Modifier.height(s.dh(1.6f)))
+            Box(Modifier.fillMaxWidth().height(s.dh(0.12f)).background(Ark.Line))
+            Spacer(Modifier.height(s.dh(1.6f)))
+            WeatherBlock("OPEN-METEO", ui.om, Ark.Cold, Ark.OpenMeteoText, s)
+        }
     }
 }
 
@@ -340,7 +312,7 @@ private fun WeatherBlock(
             )
             Spacer(Modifier.width(s.dw(2.4f)))
             Column {
-                Text(fiUnit(weather?.t, 0, "°"), color = tempColor(weather?.t), fontFamily = BigShoulders, fontWeight = FontWeight.SemiBold, fontSize = s.sh(13f), maxLines = 1)
+                Text(numUnit(weather?.t, 0, "°"), color = tempColor(weather?.t), fontFamily = BigShoulders, fontWeight = FontWeight.SemiBold, fontSize = s.sh(13f), maxLines = 1)
                 Text(weather?.cond ?: "", color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.5f), maxLines = 1)
             }
         }
@@ -353,12 +325,12 @@ private fun WeatherBlock(
 private fun WxRows(w: WeatherUi?, s: Scale) {
     Column(verticalArrangement = Arrangement.spacedBy(s.dh(0.9f))) {
         Row(horizontalArrangement = Arrangement.spacedBy(s.dw(2.4f))) {
-            MetricCell("feels", "Tuntuu", fiUnit(w?.feels, 0, "°"), s, Modifier.weight(1f))
-            MetricCell("wind", "Tuuli", fiUnit(w?.wind, 0, " m/s"), s, Modifier.weight(1f))
+            MetricCell("feels", "Feels", numUnit(w?.feels, 0, "°"), s, Modifier.weight(1f))
+            MetricCell("wind", "Wind", numUnit(w?.wind, 0, " m/s"), s, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(s.dw(2.4f))) {
-            MetricCell("hum", "Kosteus", fiUnit(w?.hum, 0, " %"), s, Modifier.weight(1f))
-            MetricCell("rain", "Sade", fiUnit(w?.precip, 1, " mm"), s, Modifier.weight(1f))
+            MetricCell("hum", "Humidity", numUnit(w?.hum, 0, " %"), s, Modifier.weight(1f))
+            MetricCell("rain", "Rain", numUnit(w?.precip, 1, " mm"), s, Modifier.weight(1f))
         }
     }
 }
@@ -373,53 +345,45 @@ private fun MetricCell(type: String, label: String, value: String, s: Scale, mod
     }
 }
 
-/* ---------------- Sensor band (large cards, dynamic border) ---------------- */
+/* ---------------- Sun + moon band (bottom strip) ---------------- */
 
 @Composable
-private fun SensorBand(ui: HomeUi, s: Scale, onSensorClick: (SensorUi) -> Unit) {
+private fun SunMoonBand(ui: HomeUi, s: Scale) {
     Column(
         Modifier.fillMaxWidth().background(
             Brush.verticalGradient(listOf(Ark.BandStart, Ark.BandEnd))
         )
     ) {
         Box(Modifier.fillMaxWidth().height(s.dh(0.14f)).background(Ark.Line))
-        if (ui.sensors.isEmpty()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = s.dw(3.4f), vertical = s.dh(3f)), verticalAlignment = Alignment.CenterVertically) {
-                Text("Ei antureita määritetty — avaa asetukset (⚙) ja yhdistä Ruuvi-anturit", color = Ark.Faint, fontFamily = HankenGrotesk, fontSize = s.sh(2.4f))
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = s.dw(3.4f), vertical = s.dh(2.4f)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text("☀", color = Ark.Warm, fontSize = s.sh(3.2f))
+            Spacer(Modifier.width(s.dw(1.2f)))
+            Text("Sunrise ", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.6f))
+            Text(ui.sunRise, color = Ark.Warm, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.6f))
+            Text("  ·  Sunset ", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.6f))
+            Text(ui.sunSet, color = Ark.Warm, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.6f))
+            if (ui.dayLen.isNotEmpty()) {
+                Text("  ·  ", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.6f))
+                Text(ui.dayLen, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.6f))
             }
-        } else {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = s.dw(3f), vertical = s.dh(2.2f)),
-                horizontalArrangement = Arrangement.spacedBy(s.dw(2.2f))
-            ) {
-                for (sn in ui.sensors) BigSensorCard(sn, s, Modifier.weight(1f), onSensorClick)
+            if (ui.moonLabel.isNotEmpty()) {
+                Spacer(Modifier.width(s.dw(4f)))
+                Text("☾", color = Ark.Cold, fontSize = s.sh(3.0f))
+                Spacer(Modifier.width(s.dw(1.2f)))
+                Text(ui.moonLabel, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.6f), maxLines = 1)
+                if (ui.moonIllum >= 0) {
+                    Text("  ·  ${ui.moonIllum} %", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.6f))
+                }
             }
         }
     }
 }
 
-@Composable
-private fun BigSensorCard(sn: SensorUi, s: Scale, modifier: Modifier, onClick: (SensorUi) -> Unit) {
-    val accent = tempColor(sn.t)
-    Row(
-        modifier.clickable { onClick(sn) }.background(Ark.SensorPanel, RoundedCornerShape(18.dp))
-            .border(s.dh(0.42f), accent, RoundedCornerShape(18.dp)).padding(horizontal = s.dw(2.2f), vertical = s.dh(2.2f)),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(sn.name.uppercase(), color = accent, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(s.dh(0.6f)))
-            Text(
-                if (sn.rh != null) fi(sn.rh, 0) + " % kosteus" else "—",
-                color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.3f), maxLines = 1
-            )
-        }
-        Spacer(Modifier.width(s.dw(1f)))
-        Text(fiUnit(sn.t, 2, "°"), color = accent, fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(7.2f), maxLines = 1)
-    }
-}
-
-/* ---------------- Weather icons (Canvas, shared between pages) ---------------- */
+/* ---------------- Metric icons (Canvas, shared between pages) ---------------- */
 
 @Composable
 internal fun MetricIcon(type: String, modifier: Modifier) {
@@ -454,18 +418,4 @@ internal fun MetricIcon(type: String, modifier: Modifier) {
             }
         }
     }
-}
-
-/* ---------------- Sensor renaming ---------------- */
-
-@Composable
-private fun RenameDialog(sensor: SensorUi, onRename: (String, String) -> Unit, onDismiss: () -> Unit) {
-    var text by remember(sensor.slot) { mutableStateOf(sensor.name) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Nimeä anturi") },
-        text = { OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true) },
-        confirmButton = { TextButton(onClick = { onRename(sensor.slot, text.trim()); onDismiss() }) { Text("Tallenna") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Peruuta") } }
-    )
 }

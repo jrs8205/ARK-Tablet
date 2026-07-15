@@ -1,47 +1,28 @@
 # ARK-Tablet
 
-**Arkikeskus for tablets** — a full-screen, always-on home information display for
-Android tablets. Built for 24/7 use as a kitchen/hallway info board: clock, Finnish
-weather from two sources, electricity spot prices, RuuviTag sensors, weather warnings,
-sun and moon data, and long-term history — all on a single landscape screen with no
-ads, no accounts, and no cloud backend.
-
-The user interface is in Finnish, and the data sources are Finland-specific.
+A full-screen, always-on **clock and weather display** for Android tablets.
+Built for 24/7 use as a kitchen/hallway info board anywhere in the world:
+pick your city (Hamburg, Tokyo, São Paulo…) and the board shows your local
+time, weather from two independent sources, and sun and moon data — with no
+ads, no accounts, no API keys and no cloud backend.
 
 ## Features
 
-- **Clock and date** — large always-visible clock with fixed-width digits and the next
-  Finnish public holiday.
-- **Weather** — current conditions and hourly forecasts from both FMI (Finnish
-  Meteorological Institute open data) and Open-Meteo, shown side by side for easy
-  comparison. 7-day forecast page with an hourly breakdown per day.
-- **Electricity spot prices** — Nord Pool day-ahead prices via the Elering API in
-  15-minute resolution: current price in the header, plus a dedicated page with
-  today/tomorrow views, cheapest/most expensive slots, a color-coded chart and a
-  scrolling slot list.
-- **RuuviTag sensors** — up to three Bluetooth LE sensors (RAWv2 format) with custom
-  names, live temperature/humidity readings and history.
-- **Weather warnings** — official warnings with full descriptions and automatic
-  scrolling.
-- **Info page** — sun arc with sunrise/sunset times (NOAA solar equations) and the
-  current moon phase rendered with a correct terminator.
-- **History** — local Room database collects battery, weather and sensor samples;
-  monthly min/max charts, daily statistics and CSV export. Configurable retention.
-- **Built for 24/7 operation** — screen kept on, scheduled day/night brightness with
-  an optional night red tint, pixel shift to prevent OLED/LCD burn-in, and location
-  that can follow GPS (with reverse geocoding down to district level via the National
-  Land Survey of Finland API).
-
-## Pages
-
-Home · Info · 7-day forecast · Electricity · Settings · History — navigated with the
-top-bar buttons of a single-activity Jetpack Compose UI.
+- **Clock and date** — large always-visible clock in the device time zone.
+- **Weather from two sources, side by side** — MET Norway (Yr) and Open-Meteo,
+  so you can see when the models agree and when they don't. Current conditions
+  on the home screen and a 7-day page with an hourly breakdown per day.
+- **City search** — global place search (Open-Meteo Geocoding API); set once
+  and the board keeps itself updated. Optional one-tap "Use device location".
+- **Sun and moon** — sunrise/sunset arc, day length and the current moon phase
+  rendered with a correct terminator (NOAA solar equations).
+- **Built for 24/7 operation** — screen kept on, scheduled day/night brightness
+  with an optional night red tint, and pixel shift to prevent panel burn-in.
 
 ## Devices
 
-Designed for landscape tablets in both 4:3 and 16:10 aspect ratios. Developed and
-tested on a Samsung Galaxy Tab S2 9.7 (Android 11) and a Galaxy Tab A9+ (Android 14).
-Requires Android 11 (API 30) or newer.
+Designed for landscape tablets in both 4:3 and 16:10 aspect ratios.
+Requires Android 11 (API 30) or newer. The UI is in English.
 
 ## Building
 
@@ -51,11 +32,6 @@ Create `local.properties` in the project root:
 
 ```properties
 sdk.dir=/path/to/Android/Sdk
-
-# Optional: enables district-level reverse geocoding (free key from
-# the National Land Survey of Finland developer portal). The app works
-# without it; location then falls back to the Android Geocoder.
-MML_API_KEY=your-key
 
 # Optional: release signing (uses release.keystore in the project root).
 # Without these, assembleRelease produces an unsigned APK.
@@ -73,19 +49,22 @@ The APK is written to `app/build/outputs/apk/release/`.
 
 ## Data sources
 
-| Source | Used for |
-|---|---|
-| [FMI open data](https://en.ilmatieteenlaitos.fi/open-data) (WFS) | Observations, forecasts, weather warnings |
-| [Open-Meteo](https://open-meteo.com/) | Comparison forecast |
-| [Elering](https://dashboard.elering.ee/) | Nord Pool electricity spot prices |
-| [National Land Survey of Finland](https://www.maanmittauslaitos.fi/en) | Reverse geocoding |
-| RuuviTag BLE broadcasts | Local temperature/humidity sensors |
+| Source | Used for | Terms |
+|---|---|---|
+| [MET Norway](https://api.met.no/) Locationforecast 2.0 | Primary forecast (global, 9 days) | [CC BY 4.0](https://api.met.no/doc/License), identified User-Agent |
+| [Open-Meteo](https://open-meteo.com/) | Comparison forecast + city search | Free for non-commercial use |
+
+Weather data by the Norwegian Meteorological Institute (MET Norway),
+licensed under CC BY 4.0, and by Open-Meteo.
 
 ## Notes
 
 - The application package name `org.jrs82.fsclock` is historical — the project
-  started life as a simple clock app called *FsClock* — and is kept so that existing
-  installations keep receiving updates.
+  started life as a simple clock app called *FsClock* — and is kept so that
+  existing installations keep receiving updates.
+- The Finnish-market predecessor of this app (FMI weather, Nord Pool
+  electricity prices, RuuviTag sensors) is preserved at the tag
+  [`arkikeskus-fi-2.4.0`](../../tree/arkikeskus-fi-2.4.0).
 - Starting an activity automatically at boot is restricted on modern Android;
   on unrestricted devices the launch can be handled by an external mechanism.
 

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -29,8 +29,6 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,53 +40,42 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jrs82.fsclock.SettingsManager
-import org.jrs82.fsclock.db.CsvExporter
-import org.jrs82.fsclock.db.HistoryRepository
-import org.jrs82.fsclock.ruuvi.RuuviRepository
-import org.jrs82.fsclock.ruuvi.RuuviSample
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/* ---------------- Settings page (Compose, replaces SettingsActivity) ----------------
+/* ---------------- Settings page ----------------
  * High contrast: large Ink texts on a dark panel → readable in both bright
- * and dark conditions. No home town (GPS handles it), no NTP comparison,
- * no test modes. */
-
-private val FI = Locale.Builder().setLanguage("fi").setRegion("FI").build()
+ * and dark conditions. */
 
 @Composable
 fun SettingsPage(
     s: Scale,
-    onOpenHistory: () -> Unit,
     onBrightnessChanged: () -> Unit,
-    ensureBleScan: () -> Boolean,
-    onSensorsChanged: () -> Unit,
+    onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
+    onPickPlace: (PlaceUi) -> Unit,
+    onUseDeviceLocation: ((Boolean) -> Unit) -> Unit,
 ) {
     val ctx = LocalContext.current
     val sm = remember { SettingsManager.get().also { it.init(ctx.applicationContext) } }
 
     Row(Modifier.fillMaxSize().padding(horizontal = s.dw(2.6f), vertical = s.dh(2f))) {
-        // Left column: display + location/warnings + app
+        // Left column: display and brightness
         Column(
             Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(s.dh(2f))
         ) {
             DisplaySection(sm, s, onBrightnessChanged)
-            LocationSection(sm, s)
-            AppInfoSection(sm, s, ctx)
         }
         Spacer(Modifier.width(s.dw(2.4f)))
-        // Right column: sensors + database
+        // Right column: location + app info
         Column(
             Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(s.dh(2f))
         ) {
-            RuuviSection(sm, s, ensureBleScan, onSensorsChanged)
-            DatabaseSection(sm, s, onOpenHistory)
+            LocationSection(sm, s, onSearchCities, onPickPlace, onUseDeviceLocation)
+            AppInfoSection(sm, s, ctx)
         }
     }
 }
@@ -156,26 +143,26 @@ private fun DisplaySection(sm: SettingsManager, s: Scale, onBrightnessChanged: (
     var evening by remember { mutableStateOf(sm.eveningHour) }
     var redTint by remember { mutableStateOf(sm.isNightRedTint) }
 
-    SectionCard("Näyttö ja kirkkaus", s) {
-        BrightnessSlider("Päivän kirkkaus", day, s) { v, done ->
+    SectionCard("Display & brightness", s) {
+        BrightnessSlider("Day brightness", day, s) { v, done ->
             day = v
             if (done) { sm.dayBrightness = v.toInt(); onBrightnessChanged() }
         }
         Spacer(Modifier.height(s.dh(1f)))
-        BrightnessSlider("Yön kirkkaus", night, s) { v, done ->
+        BrightnessSlider("Night brightness", night, s) { v, done ->
             night = v
             if (done) { sm.nightBrightness = v.toInt(); onBrightnessChanged() }
         }
         Spacer(Modifier.height(s.dh(1.2f)))
-        HourStepper("Päivä alkaa", morning, s) { h ->
+        HourStepper("Day starts", morning, s) { h ->
             morning = h; sm.morningHour = h; onBrightnessChanged()
         }
         Spacer(Modifier.height(s.dh(0.8f)))
-        HourStepper("Yö alkaa", evening, s) { h ->
+        HourStepper("Night starts", evening, s) { h ->
             evening = h; sm.eveningHour = h; onBrightnessChanged()
         }
         Spacer(Modifier.height(s.dh(0.6f)))
-        SettingSwitch("Yön punainen sävy", "Punertaa näytön yökirkkauden aikana", redTint, s) {
+        SettingSwitch("Night red tint", "Adds a warm red filter during night brightness", redTint, s) {
             redTint = it; sm.setNightRedTint(it)
         }
     }
@@ -206,7 +193,7 @@ private fun HourStepper(label: String, hour: Int, s: Scale, onChange: (Int) -> U
         Text(label, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.5f), modifier = Modifier.weight(1f))
         StepButton("−", s) { onChange((hour + 23) % 24) }
         Text(
-            String.format(FI, "%02d:00", hour), color = Ark.Ink, fontFamily = BigShoulders, fontWeight = FontWeight.Bold,
+            String.format(Locale.US, "%02d:00", hour), color = Ark.Ink, fontFamily = BigShoulders, fontWeight = FontWeight.Bold,
             fontSize = s.sh(3.4f), modifier = Modifier.padding(horizontal = s.dw(1.2f))
         )
         StepButton("+", s) { onChange((hour + 1) % 24) }
@@ -224,20 +211,121 @@ private fun StepButton(glyph: String, s: Scale, onClick: () -> Unit) {
     }
 }
 
-/* ---------------- Location and warnings ---------------- */
+/* ---------------- Location ---------------- */
 
 @Composable
-private fun LocationSection(sm: SettingsManager, s: Scale) {
-    var followGps by remember { mutableStateOf(sm.isFollowGpsLocation) }
-    var autoScroll by remember { mutableStateOf(sm.warningsAutoScroll) }
-    SectionCard("Sijainti ja varoitukset", s) {
-        SettingSwitch("Kotipaikka seuraa GPS-sijaintia", "Sää ja paikannimi päivittyvät laitteen sijainnista", followGps, s) {
-            followGps = it; sm.setFollowGpsLocation(it)
+private fun LocationSection(
+    sm: SettingsManager,
+    s: Scale,
+    onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
+    onPickPlace: (PlaceUi) -> Unit,
+    onUseDeviceLocation: ((Boolean) -> Unit) -> Unit,
+) {
+    var placeText by remember { mutableStateOf(currentPlaceText(sm)) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var locating by remember { mutableStateOf(false) }
+    var locationError by remember { mutableStateOf(false) }
+
+    SectionCard("Location", s) {
+        InfoRow("Current place", placeText, s)
+        Spacer(Modifier.height(s.dh(0.6f)))
+        ActionButton("Search city", s) { searchOpen = true }
+        ActionButton(if (locating) "Locating…" else "Use device location", s, enabled = !locating) {
+            locating = true; locationError = false
+            onUseDeviceLocation { ok ->
+                locating = false
+                locationError = !ok
+                if (ok) placeText = currentPlaceText(sm)
+            }
         }
-        SettingSwitch("Varoitusten automaattinen vieritys", "Vierittää pitkät varoituslistat Tiedot-sivulla", autoScroll, s) {
-            autoScroll = it; sm.setWarningsAutoScroll(it)
+        if (locationError) {
+            Text(
+                "Could not resolve the device location. Check that location is enabled, or use city search.",
+                color = Ark.Warn, fontFamily = HankenGrotesk, fontSize = s.sh(1.9f),
+                modifier = Modifier.padding(top = s.dh(0.4f))
+            )
         }
     }
+
+    if (searchOpen) {
+        CitySearchDialog(s, onSearchCities,
+            onPick = { place ->
+                onPickPlace(place)
+                placeText = place.name + (if (place.country.isNotEmpty()) ", " + place.country else "")
+                searchOpen = false
+            },
+            onDismiss = { searchOpen = false })
+    }
+}
+
+private fun currentPlaceText(sm: SettingsManager): String {
+    if (!sm.hasPlace()) return "Not set"
+    val country = sm.homeCountry
+    return sm.homePlace + (if (country.isNotEmpty()) ", $country" else "")
+}
+
+@Composable
+private fun CitySearchDialog(
+    s: Scale,
+    onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
+    onPick: (PlaceUi) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var searching by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<PlaceUi>?>(null) }
+    var failed by remember { mutableStateOf(false) }
+
+    fun runSearch() {
+        if (query.isBlank() || searching) return
+        searching = true; failed = false
+        onSearchCities(query) { list ->
+            searching = false
+            failed = list == null
+            results = list
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Search city") },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query, onValueChange = { query = it }, singleLine = true,
+                        placeholder = { Text("e.g. Hamburg") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(s.dw(1f)))
+                    TextButton(onClick = { runSearch() }, enabled = query.isNotBlank() && !searching) {
+                        Text(if (searching) "…" else "Search")
+                    }
+                }
+                Spacer(Modifier.height(s.dh(1f)))
+                Column(Modifier.fillMaxWidth().heightIn(max = s.dh(38f)).verticalScroll(rememberScrollState())) {
+                    when {
+                        failed -> Text("Search failed — check the network connection and try again.")
+                        results != null && results!!.isEmpty() -> Text("No matches. Try a different spelling.")
+                        results != null -> {
+                            for (place in results!!) {
+                                Column(
+                                    Modifier.fillMaxWidth().clickable { onPick(place) }.padding(vertical = s.dh(1f))
+                                ) {
+                                    Text(place.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (place.detail.isNotEmpty()) {
+                                        Text(place.detail, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
 }
 
 /* ---------------- App ---------------- */
@@ -248,12 +336,17 @@ private fun AppInfoSection(sm: SettingsManager, s: Scale, ctx: android.content.C
         try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?" } catch (e: Exception) { "?" }
     }
     val lastUpdate = remember {
-        val ts = sm.lastSuccessfulFmiUpdate
-        if (ts <= 0) "—" else SimpleDateFormat("d.M.yyyy HH:mm", FI).format(Date(ts))
+        val ts = sm.lastWeatherUpdate
+        if (ts <= 0) "—" else SimpleDateFormat("d MMM yyyy HH:mm", Locale.ENGLISH).format(Date(ts))
     }
-    SectionCard("Sovellus", s) {
-        InfoRow("Versio", version, s)
-        InfoRow("Viimeisin sääpäivitys", lastUpdate, s)
+    SectionCard("Application", s) {
+        InfoRow("Version", version, s)
+        InfoRow("Last weather update", lastUpdate, s)
+        Spacer(Modifier.height(s.dh(0.8f)))
+        Text(
+            "Weather data: MET Norway (CC BY 4.0) · Open-Meteo\nCity search: Open-Meteo Geocoding API",
+            color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(1.9f)
+        )
     }
 }
 
@@ -262,309 +355,5 @@ internal fun InfoRow(label: String, value: String, s: Scale) {
     Row(Modifier.fillMaxWidth().padding(vertical = s.dh(0.6f)), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.3f), modifier = Modifier.weight(1f))
         Text(value, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.3f))
-    }
-}
-
-/* ---------------- RuuviTag sensors ---------------- */
-
-private data class SlotInfo(val slot: String, val defaultName: String)
-
-private val SLOTS = listOf(
-    SlotInfo(SettingsManager.RUUVI_SLOT_BEDROOM, "Anturi 1"),
-    SlotInfo(SettingsManager.RUUVI_SLOT_LIVINGROOM, "Anturi 2"),
-    SlotInfo(SettingsManager.RUUVI_SLOT_BALCONY, "Anturi 3"),
-)
-
-@Composable
-private fun RuuviSection(sm: SettingsManager, s: Scale, ensureBleScan: () -> Boolean, onSensorsChanged: () -> Unit) {
-    val ctx = LocalContext.current
-    var refresh by remember { mutableStateOf(0) }
-    var scanSlot by remember { mutableStateOf<String?>(null) }   // slot being assigned to, or null
-    var scanOpen by remember { mutableStateOf(false) }
-    var renameSlot by remember { mutableStateOf<SlotInfo?>(null) }
-
-    SectionCard("RuuviTag-anturit", s) {
-        @Suppress("UNUSED_EXPRESSION") refresh
-        for (info in SLOTS) {
-            val mac = sm.getRuuviMac(info.slot)
-            val name = sm.getRuuviName(info.slot, info.defaultName)
-            val sample = if (mac != null) RuuviRepository.get(ctx).getLatest(mac) else null
-            val temp = sample?.temperatureC()
-            SensorSlotRow(
-                name = name,
-                detail = when {
-                    mac == null -> "Ei kytketty"
-                    temp != null -> "$mac · " + fi(temp.toFloat(), 1) + " °C"
-                    else -> "$mac · ei mittausta"
-                },
-                connected = mac != null,
-                s = s,
-                onRename = { renameSlot = info },
-                onAssign = { scanSlot = info.slot; scanOpen = true }
-            )
-            Spacer(Modifier.height(s.dh(0.9f)))
-        }
-        Spacer(Modifier.height(s.dh(0.3f)))
-        ActionButton("Etsi antureita", s) { scanSlot = null; scanOpen = true }
-    }
-
-    if (scanOpen) {
-        RuuviScanDialog(sm, s, scanSlot, ensureBleScan,
-            onAssigned = { refresh++; onSensorsChanged() },
-            onDismiss = { scanOpen = false })
-    }
-    renameSlot?.let { info ->
-        var text by remember(info.slot) { mutableStateOf(sm.getRuuviName(info.slot, info.defaultName)) }
-        AlertDialog(
-            onDismissRequest = { renameSlot = null },
-            title = { Text("Anturin näkyvä nimi") },
-            text = { OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true) },
-            confirmButton = {
-                TextButton(onClick = {
-                    sm.setRuuviName(info.slot, text.trim())
-                    refresh++; onSensorsChanged(); renameSlot = null
-                }) { Text("Tallenna") }
-            },
-            dismissButton = { TextButton(onClick = { renameSlot = null }) { Text("Peruuta") } }
-        )
-    }
-}
-
-@Composable
-private fun SensorSlotRow(name: String, detail: String, connected: Boolean, s: Scale, onRename: () -> Unit, onAssign: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Ark.SensorPanel, RoundedCornerShape(12.dp))
-            .border(s.dh(0.12f), if (connected) Ark.Good.copy(alpha = 0.55f) else Ark.Line, RoundedCornerShape(12.dp))
-            .padding(horizontal = s.dw(1.4f), vertical = s.dh(1f)),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f).clickable(onClick = onRename)) {
-            Text(name, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.4f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(detail, color = if (connected) Ark.Muted else Ark.Faint, fontFamily = HankenGrotesk, fontSize = s.sh(1.9f), maxLines = 1)
-        }
-        Spacer(Modifier.width(s.dw(1f)))
-        Text(
-            "Nimeä", color = Ark.Accent, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2f),
-            modifier = Modifier.clickable(onClick = onRename).padding(s.dw(0.6f))
-        )
-        Text(
-            if (connected) "Vaihda" else "Kytke", color = Ark.Accent, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2f),
-            modifier = Modifier.clickable(onClick = onAssign).padding(s.dw(0.6f))
-        )
-    }
-}
-
-@Composable
-private fun RuuviScanDialog(
-    sm: SettingsManager,
-    s: Scale,
-    targetSlot: String?,
-    ensureBleScan: () -> Boolean,
-    onAssigned: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val ctx = LocalContext.current
-    var found by remember { mutableStateOf<List<RuuviSample>>(emptyList()) }
-    var permissionOk by remember { mutableStateOf(true) }
-    var pickSlotFor by remember { mutableStateOf<String?>(null) }  // MAC a slot is being picked for
-
-    DisposableEffect(Unit) {
-        permissionOk = ensureBleScan()
-        val repo = RuuviRepository.get(ctx)
-        // start() is refcounted (scanClients) → paired with stop() in onDispose.
-        repo.start()
-        fun snapshotList(): List<RuuviSample> =
-            repo.snapshot().values.sortedBy { it.mac }
-        found = snapshotList()
-        val listener = RuuviRepository.Listener { _, _ -> found = snapshotList() }
-        repo.addListener(listener)
-        onDispose {
-            repo.removeListener(listener)
-            repo.stop()
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (targetSlot == null) "Havaitut RuuviTagit" else "Valitse anturi") },
-        text = {
-            Column {
-                if (!permissionOk) {
-                    Text("Bluetooth-skannauslupa puuttuu. Myönnä lupa ja avaa haku uudelleen.")
-                } else if (found.isEmpty()) {
-                    Text("Etsitään antureita…")
-                } else {
-                    for (sample in found) {
-                        val slot = sm.slotForMac(sample.mac)
-                        val slotLabel = slot?.let { sl -> SLOTS.firstOrNull { it.slot == sl } }
-                            ?.let { " · " + sm.getRuuviName(it.slot, it.defaultName) } ?: ""
-                        val temp = sample.temperatureC()
-                        Text(
-                            sample.mac + (if (temp != null) "  " + fi(temp.toFloat(), 1) + " °C" else "") +
-                                "  (${sample.rssi} dBm)$slotLabel",
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                if (targetSlot != null) {
-                                    assignMac(sm, sample.mac, targetSlot)
-                                    onAssigned(); onDismiss()
-                                } else {
-                                    pickSlotFor = sample.mac
-                                }
-                            }.padding(vertical = s.dh(1f))
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Sulje") } }
-    )
-
-    pickSlotFor?.let { mac ->
-        AlertDialog(
-            onDismissRequest = { pickSlotFor = null },
-            title = { Text("Kytke $mac") },
-            text = {
-                Column {
-                    for (info in SLOTS) {
-                        Text(
-                            sm.getRuuviName(info.slot, info.defaultName),
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                assignMac(sm, mac, info.slot)
-                                pickSlotFor = null; onAssigned(); onDismiss()
-                            }.padding(vertical = s.dh(1f))
-                        )
-                    }
-                    Text(
-                        "Irrota anturi",
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            val slot = sm.slotForMac(mac)
-                            if (slot != null) sm.setRuuviMac(slot, null)
-                            pickSlotFor = null; onAssigned(); onDismiss()
-                        }.padding(vertical = s.dh(1f))
-                    )
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { pickSlotFor = null }) { Text("Peruuta") } }
-        )
-    }
-}
-
-/** Assigns the MAC to a slot; removes it from a possible old slot (one sensor per slot). */
-private fun assignMac(sm: SettingsManager, mac: String, slot: String) {
-    val existing = sm.slotForMac(mac)
-    if (existing != null && existing != slot) sm.setRuuviMac(existing, null)
-    sm.setRuuviMac(slot, mac)
-}
-
-/* ---------------- Database and history ---------------- */
-
-@Composable
-private fun DatabaseSection(sm: SettingsManager, s: Scale, onOpenHistory: () -> Unit) {
-    val ctx = LocalContext.current
-    var dbInfo by remember { mutableStateOf("Lasketaan…") }
-    var dbReload by remember { mutableStateOf(0) }
-    var retention by remember { mutableStateOf(sm.retentionDays) }
-    var retentionOpen by remember { mutableStateOf(false) }
-    var clearOpen by remember { mutableStateOf(false) }
-    var exportStatus by remember { mutableStateOf<String?>(null) }
-    var exporting by remember { mutableStateOf(false) }
-
-    LaunchedEffect(dbReload) {
-        dbInfo = withContext(Dispatchers.IO) {
-            try {
-                val repo = HistoryRepository.get(ctx.applicationContext)
-                val count = repo.sampleCount()
-                val f = ctx.getDatabasePath("fsclock.db")
-                val size = if (f.exists()) f.length() else 0L
-                val sizeStr = when {
-                    size < 1024 -> "$size B"
-                    size < 1024 * 1024 -> String.format(FI, "%.1f kB", size / 1024.0)
-                    else -> String.format(FI, "%.2f MB", size / (1024.0 * 1024.0))
-                }
-                String.format(FI, "%,d mittausta · %s", count, sizeStr)
-            } catch (e: Exception) { "—" }
-        }
-    }
-
-    val retentionLabels = listOf(30 to "30 päivää", 90 to "3 kuukautta", 365 to "1 vuosi", 1095 to "3 vuotta", 3650 to "10 vuotta")
-
-    SectionCard("Tietokanta ja historia", s) {
-        InfoRow("Tietokanta", dbInfo, s)
-        Row(Modifier.fillMaxWidth().clickable { retentionOpen = true }.padding(vertical = s.dh(0.6f)), verticalAlignment = Alignment.CenterVertically) {
-            Text("Säilytysaika", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.3f), modifier = Modifier.weight(1f))
-            Text(
-                retentionLabels.firstOrNull { it.first == retention }?.second ?: "$retention pv",
-                color = Ark.Accent, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.3f)
-            )
-        }
-        Spacer(Modifier.height(s.dh(0.6f)))
-        ActionButton("Avaa historia", s) { onOpenHistory() }
-        ActionButton(if (exporting) "Viedään…" else "Vie raakadata CSV", s, enabled = !exporting) {
-            exporting = true; exportStatus = null
-        }
-        if (exporting) {
-            LaunchedEffect(Unit) {
-                val result = withContext(Dispatchers.IO) {
-                    CsvExporter.export(ctx.applicationContext, CsvExporter.Kind.RAW_WEATHER_BATTERY,
-                        CsvExporter.buildFileName(CsvExporter.Kind.RAW_WEATHER_BATTERY))
-                }
-                exportStatus = if (result.ok) "Tallennettu: ${result.fileName}" else "Vienti epäonnistui"
-                exporting = false
-            }
-        }
-        exportStatus?.let {
-            Text(it, color = if (it.startsWith("Tallennettu")) Ark.Good else Ark.Warn, fontFamily = HankenGrotesk, fontSize = s.sh(1.9f), modifier = Modifier.padding(top = s.dh(0.4f)))
-        }
-        ActionButton("Tyhjennä tietokanta", s, accent = Ark.Warn) { clearOpen = true }
-    }
-
-    if (retentionOpen) {
-        AlertDialog(
-            onDismissRequest = { retentionOpen = false },
-            title = { Text("Mittaushistorian säilytysaika") },
-            text = {
-                Column {
-                    for ((days, label) in retentionLabels) {
-                        Text(
-                            (if (days == retention) "●  " else "○  ") + label,
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                retention = days; sm.setRetentionDays(days); retentionOpen = false
-                            }.padding(vertical = s.dh(1f))
-                        )
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { retentionOpen = false }) { Text("Sulje") } }
-        )
-    }
-
-    if (clearOpen) {
-        var confirmed by remember { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = { clearOpen = false },
-            title = { Text("Tyhjennä tietokanta") },
-            text = {
-                Column {
-                    Text("Poistaa pysyvästi kaikki tallennetut sää-, akku- ja anturimittaukset sekä päiväkohtaiset tilastot.")
-                    Spacer(Modifier.height(s.dh(1f)))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = confirmed, onCheckedChange = { confirmed = it })
-                        Text("Ymmärrän, että tietoja ei voi palauttaa")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = confirmed, onClick = {
-                    clearOpen = false
-                    Thread {
-                        try { HistoryRepository.get(ctx.applicationContext).clearAll() } catch (_: Exception) {}
-                    }.start()
-                    dbReload++
-                }) { Text("Tyhjennä") }
-            },
-            dismissButton = { TextButton(onClick = { clearOpen = false }) { Text("Peruuta") } }
-        )
     }
 }

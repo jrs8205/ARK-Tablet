@@ -108,7 +108,8 @@ public class WeatherIconView extends View {
         }
     }
 
-    /** Rough Helsinki-Vantaa sunrise/sunset per month (local time).
+    /** Rough sunrise/sunset per month (northern mid-latitude approximation);
+     *  only a fallback when the source does not provide day/night information.
      *  Used as a fallback when the SmartSymbol does not indicate night. */
     public static boolean isNightHour(int hour, int monthOneBased) {
         int m = monthOneBased - 1;

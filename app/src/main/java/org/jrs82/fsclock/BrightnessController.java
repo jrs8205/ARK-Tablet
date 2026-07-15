@@ -6,14 +6,12 @@ import android.view.Window;
 import android.view.WindowManager;
 
 import java.util.Calendar;
-import java.util.Locale;
 
-/** Day/night brightness management. Adjusts Window.screenBrightness based on time of
- *  day and test mode. Runs its own minute tick so that clock-time boundaries
+/** Day/night brightness management. Adjusts Window.screenBrightness based on
+ *  the time of day. Runs its own minute tick so that clock-time boundaries
  *  (morning/evening) get noticed without an external wakeup. */
 public class BrightnessController {
 
-    private static final Locale FI = new Locale("fi", "FI");
     private static final long TICK_MS = 60_000L;
 
     private final Window window;            // may be null (then a no-op)
@@ -40,21 +38,13 @@ public class BrightnessController {
         ui.removeCallbacks(tick);
     }
 
-    /** Adjust brightness for the current moment (test mode or time of day).
+    /** Adjust brightness for the current moment.
      *  The cache avoids unnecessary Window attribute updates, but if pct changes,
      *  the new value takes effect immediately. */
     public void applyNow() {
         if (window == null) return;
-        int testMode = settings.getActiveTestMode();
-        int pct;
-        if (testMode == SettingsManager.TEST_DAY) {
-            pct = settings.getDayBrightness();
-        } else if (testMode == SettingsManager.TEST_NIGHT) {
-            pct = settings.getNightBrightness();
-        } else {
-            int hour = Calendar.getInstance(FI).get(Calendar.HOUR_OF_DAY);
-            pct = isNightBrightness(hour) ? settings.getNightBrightness() : settings.getDayBrightness();
-        }
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        int pct = isNightBrightness(hour) ? settings.getNightBrightness() : settings.getDayBrightness();
         float val = Math.max(0.01f, Math.min(1f, pct / 100f));
         if (Math.abs(val - lastBrightness) < 0.005f) return;
         lastBrightness = val;

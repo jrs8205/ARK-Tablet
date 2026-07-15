@@ -23,9 +23,9 @@ public class BootReceiver extends BroadcastReceiver {
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
             context.startActivity(launch);
-            Log.i(TAG, "Arkikeskus-autostart ComposeHomeActivity launched after boot");
+            Log.i(TAG, "ComposeHomeActivity launched after boot");
         } catch (Exception e) {
-            Log.w(TAG, "Autostart epäonnistui — daily_reboot-moduuli jää varalle", e);
+            Log.w(TAG, "Autostart failed (background activity start may be restricted)", e);
         }
     }
 }
