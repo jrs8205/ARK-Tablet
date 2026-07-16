@@ -63,9 +63,9 @@ private fun SunCard(ui: HomeUi, s: Scale, modifier: Modifier) {
         }
         Spacer(Modifier.height(s.dh(1.6f)))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            SunStat("Sunrise", ui.sunRise, Ark.Warm, s)
+            SunStat("Sunrise", TimeFormat.minutesOfDay(ui.sunriseMin, ui.twelveHour), Ark.Warm, s)
             SunStat("Day length", ui.dayLen, Ark.Ink, s)
-            SunStat("Sunset", ui.sunSet, Ark.Cold, s)
+            SunStat("Sunset", TimeFormat.minutesOfDay(ui.sunsetMin, ui.twelveHour), Ark.Cold, s)
         }
     }
 }

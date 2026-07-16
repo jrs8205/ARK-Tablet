@@ -51,11 +51,13 @@ import java.util.Locale
 
 @Composable
 fun SettingsPage(
+    ui: HomeUi,
     s: Scale,
     onBrightnessChanged: () -> Unit,
     onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
     onPickPlace: (PlaceUi) -> Unit,
-    onUseDeviceLocation: ((Boolean) -> Unit) -> Unit,
+    onUseDeviceLocation: ((LocationOutcome) -> Unit) -> Unit,
+    onTimeFormatChanged: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val sm = remember { SettingsManager.get().also { it.init(ctx.applicationContext) } }
@@ -66,7 +68,7 @@ fun SettingsPage(
             Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(s.dh(2f))
         ) {
-            DisplaySection(sm, s, onBrightnessChanged)
+            DisplaySection(sm, s, onBrightnessChanged, onTimeFormatChanged)
         }
         Spacer(Modifier.width(s.dw(2.4f)))
         // Right column: location + app info
@@ -74,8 +76,8 @@ fun SettingsPage(
             Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(s.dh(2f))
         ) {
-            LocationSection(sm, s, onSearchCities, onPickPlace, onUseDeviceLocation)
-            AppInfoSection(sm, s, ctx)
+            LocationSection(sm, ui.locationPermGranted, s, onSearchCities, onPickPlace, onUseDeviceLocation)
+            AppInfoSection(sm, ui.twelveHour, s, ctx)
         }
     }
 }
@@ -136,12 +138,13 @@ internal fun ActionButton(label: String, s: Scale, accent: Color = Ark.Accent, e
 /* ---------------- Display and brightness ---------------- */
 
 @Composable
-private fun DisplaySection(sm: SettingsManager, s: Scale, onBrightnessChanged: () -> Unit) {
+private fun DisplaySection(sm: SettingsManager, s: Scale, onBrightnessChanged: () -> Unit, onTimeFormatChanged: () -> Unit) {
     var day by remember { mutableStateOf(sm.dayBrightness.toFloat()) }
     var night by remember { mutableStateOf(sm.nightBrightness.toFloat()) }
     var morning by remember { mutableStateOf(sm.morningHour) }
     var evening by remember { mutableStateOf(sm.eveningHour) }
     var redTint by remember { mutableStateOf(sm.isNightRedTint) }
+    var twelve by remember { mutableStateOf(sm.isTwelveHourClock) }
 
     SectionCard("Display & brightness", s) {
         BrightnessSlider("Day brightness", day, s) { v, done ->
@@ -154,17 +157,47 @@ private fun DisplaySection(sm: SettingsManager, s: Scale, onBrightnessChanged: (
             if (done) { sm.nightBrightness = v.toInt(); onBrightnessChanged() }
         }
         Spacer(Modifier.height(s.dh(1.2f)))
-        HourStepper("Day starts", morning, s) { h ->
+        HourStepper("Day starts", morning, twelve, s) { h ->
             morning = h; sm.morningHour = h; onBrightnessChanged()
         }
         Spacer(Modifier.height(s.dh(0.8f)))
-        HourStepper("Night starts", evening, s) { h ->
+        HourStepper("Night starts", evening, twelve, s) { h ->
             evening = h; sm.eveningHour = h; onBrightnessChanged()
         }
         Spacer(Modifier.height(s.dh(0.6f)))
         SettingSwitch("Night red tint", "Adds a warm red filter during night brightness", redTint, s) {
             redTint = it; sm.setNightRedTint(it)
         }
+        Spacer(Modifier.height(s.dh(0.6f)))
+        TimeFormatSelector(twelve, s) { v ->
+            twelve = v; sm.setTwelveHourClock(v); onTimeFormatChanged()
+        }
+    }
+}
+
+@Composable
+private fun TimeFormatSelector(twelve: Boolean, s: Scale, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = s.dh(0.7f)), verticalAlignment = Alignment.CenterVertically) {
+        RowLabel("Time format", null, s, Modifier.weight(1f))
+        SegmentChip("24 h", !twelve, s) { onChange(false) }
+        Spacer(Modifier.width(s.dw(0.8f)))
+        SegmentChip("12 h AM/PM", twelve, s) { onChange(true) }
+    }
+}
+
+@Composable
+private fun SegmentChip(label: String, active: Boolean, s: Scale, onClick: () -> Unit) {
+    Box(
+        Modifier.background(if (active) Ark.Accent else Ark.SensorPanel, RoundedCornerShape(10.dp))
+            .border(s.dh(0.14f), if (active) Ark.Accent else Ark.Line, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = s.dw(1.3f), vertical = s.dh(1f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label, color = if (active) Color(0xFF06222B) else Ark.Muted,
+            fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.1f), maxLines = 1
+        )
     }
 }
 
@@ -188,12 +221,12 @@ private fun BrightnessSlider(label: String, value: Float, s: Scale, onChange: (F
 }
 
 @Composable
-private fun HourStepper(label: String, hour: Int, s: Scale, onChange: (Int) -> Unit) {
+private fun HourStepper(label: String, hour: Int, twelveHour: Boolean, s: Scale, onChange: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.5f), modifier = Modifier.weight(1f))
         StepButton("−", s) { onChange((hour + 23) % 24) }
         Text(
-            String.format(Locale.US, "%02d:00", hour), color = Ark.Ink, fontFamily = BigShoulders, fontWeight = FontWeight.Bold,
+            TimeFormat.stepperHour(hour, twelveHour), color = Ark.Ink, fontFamily = BigShoulders, fontWeight = FontWeight.Bold,
             fontSize = s.sh(3.4f), modifier = Modifier.padding(horizontal = s.dw(1.2f))
         )
         StepButton("+", s) { onChange((hour + 1) % 24) }
@@ -216,31 +249,53 @@ private fun StepButton(glyph: String, s: Scale, onClick: () -> Unit) {
 @Composable
 private fun LocationSection(
     sm: SettingsManager,
+    permGranted: Boolean,
     s: Scale,
     onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
     onPickPlace: (PlaceUi) -> Unit,
-    onUseDeviceLocation: ((Boolean) -> Unit) -> Unit,
+    onUseDeviceLocation: ((LocationOutcome) -> Unit) -> Unit,
 ) {
     var placeText by remember { mutableStateOf(currentPlaceText(sm)) }
     var searchOpen by remember { mutableStateOf(false) }
     var locating by remember { mutableStateOf(false) }
-    var locationError by remember { mutableStateOf(false) }
+    var locationError by remember { mutableStateOf<LocationOutcome?>(null) }
 
     SectionCard("Location", s) {
         InfoRow("Current place", placeText, s)
+        Row(Modifier.fillMaxWidth().padding(vertical = s.dh(0.6f)), verticalAlignment = Alignment.CenterVertically) {
+            Text("Location permission", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.3f), modifier = Modifier.weight(1f))
+            Text(
+                if (permGranted) "Granted" else "Not granted",
+                color = if (permGranted) Ark.Good else Ark.Warn,
+                fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.3f)
+            )
+        }
+        if (!permGranted) {
+            Text(
+                "Set the location with city search, or tap \"Use device location\" to grant the permission.",
+                color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(1.9f)
+            )
+        }
         Spacer(Modifier.height(s.dh(0.6f)))
         ActionButton("Search city", s) { searchOpen = true }
         ActionButton(if (locating) "Locating…" else "Use device location", s, enabled = !locating) {
-            locating = true; locationError = false
-            onUseDeviceLocation { ok ->
+            locating = true; locationError = null
+            onUseDeviceLocation { outcome ->
                 locating = false
-                locationError = !ok
-                if (ok) placeText = currentPlaceText(sm)
+                locationError = if (outcome == LocationOutcome.SUCCESS) null else outcome
+                if (outcome == LocationOutcome.SUCCESS) placeText = currentPlaceText(sm)
             }
         }
-        if (locationError) {
+        locationError?.let { err ->
             Text(
-                "Could not resolve the device location. Check that location is enabled, or use city search.",
+                when (err) {
+                    LocationOutcome.PERMISSION_DENIED ->
+                        "Location permission was denied. Tap the button to try again, or use city search."
+                    LocationOutcome.PERMISSION_DENIED_FOREVER ->
+                        "Location permission is blocked. Allow Location for ARK-Tablet in Android app settings, or use city search."
+                    else ->
+                        "Could not resolve the device location. Check that location is enabled, or use city search."
+                },
                 color = Ark.Warn, fontFamily = HankenGrotesk, fontSize = s.sh(1.9f),
                 modifier = Modifier.padding(top = s.dh(0.4f))
             )
@@ -265,7 +320,7 @@ private fun currentPlaceText(sm: SettingsManager): String {
 }
 
 @Composable
-private fun CitySearchDialog(
+internal fun CitySearchDialog(
     s: Scale,
     onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
     onPick: (PlaceUi) -> Unit,
@@ -331,13 +386,14 @@ private fun CitySearchDialog(
 /* ---------------- App ---------------- */
 
 @Composable
-private fun AppInfoSection(sm: SettingsManager, s: Scale, ctx: android.content.Context) {
+private fun AppInfoSection(sm: SettingsManager, twelveHour: Boolean, s: Scale, ctx: android.content.Context) {
     val version = remember {
         try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?" } catch (e: Exception) { "?" }
     }
-    val lastUpdate = remember {
+    val lastUpdate = remember(twelveHour) {
         val ts = sm.lastWeatherUpdate
-        if (ts <= 0) "—" else SimpleDateFormat("d MMM yyyy HH:mm", Locale.ENGLISH).format(Date(ts))
+        val pattern = if (twelveHour) "d MMM yyyy h:mm a" else "d MMM yyyy HH:mm"
+        if (ts <= 0) "—" else SimpleDateFormat(pattern, Locale.ENGLISH).format(Date(ts))
     }
     SectionCard("Application", s) {
         InfoRow("Version", version, s)

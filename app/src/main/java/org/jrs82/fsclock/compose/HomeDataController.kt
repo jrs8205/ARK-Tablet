@@ -72,7 +72,9 @@ class HomeDataController(activityCtx: Context) {
         update { it.copy(
             city = if (sm.hasPlace()) sm.homePlace else "—",
             country = sm.homeCountry,
-            needsPlace = !sm.hasPlace()
+            needsPlace = !sm.hasPlace(),
+            twelveHour = sm.isTwelveHourClock,
+            locationPermGranted = hasLocationPermission()
         ) }
         ui.post(deviceTick)
         ui.post(weatherTick)
@@ -117,6 +119,14 @@ class HomeDataController(activityCtx: Context) {
         computeSun()
     }
 
+    /** Re-reads the settings-derived flags right away (time format toggle, permission grant). */
+    fun refreshSettingsState() {
+        val sm = SettingsManager.get()
+        val twelve = sm.isTwelveHourClock
+        val perm = hasLocationPermission()
+        update { it.copy(twelveHour = twelve, locationPermGranted = perm) }
+    }
+
     /** City search on the IO executor; the callback runs on the main thread
      *  (null = network/parse error, empty list = no matches). */
     fun searchCities(query: String, onResult: (List<PlaceUi>?) -> Unit) {
@@ -142,6 +152,8 @@ class HomeDataController(activityCtx: Context) {
             if (wifiTickCount++ % 5 == 0) {
                 pushWifi()
                 pushRedTint()
+                // Keeps the permission row honest when it changes in system settings.
+                refreshSettingsState()
             }
             pushBattery()
             ui.postDelayed(this, 1000L)
@@ -352,8 +364,6 @@ class HomeDataController(activityCtx: Context) {
             if (!sm.hasHomeCoordinates()) return
             val astro = Astronomy.calculate(Date(), sm.homeLatitude, sm.homeLongitude, TimeZone.getDefault())
             update { it.copy(
-                sunRise = Astronomy.formatSunrise(astro.sun) ?: "—",
-                sunSet = Astronomy.formatSunset(astro.sun) ?: "—",
                 dayLen = Astronomy.formatDayLength(astro.sun) ?: "",
                 sunriseMin = astro.sun.sunriseMinutes,
                 sunsetMin = astro.sun.sunsetMinutes,

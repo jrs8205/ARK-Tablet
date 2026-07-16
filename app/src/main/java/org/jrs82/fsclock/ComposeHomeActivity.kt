@@ -18,6 +18,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import org.jrs82.fsclock.compose.HomeDataController
 import org.jrs82.fsclock.compose.HomeScreen
+import org.jrs82.fsclock.compose.LocationOutcome
 import org.jrs82.fsclock.compose.Page
 
 /** Host of the Compose home screen. Forced landscape + always-on kiosk settings.
@@ -28,23 +29,54 @@ class ComposeHomeActivity : ComponentActivity() {
     private lateinit var pixelShift: PixelShiftController
     private lateinit var brightness: BrightnessController
 
-    /** Callback of the "Use device location" action waiting for a permission grant. */
-    private var pendingLocationResult: ((Boolean) -> Unit)? = null
+    /** Callback waiting for a permission grant (null for the silent first-launch ask). */
+    private var pendingLocationResult: ((LocationOutcome) -> Unit)? = null
 
     private val locationPerm =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            SettingsManager.get().setLocationPermAsked()
+            data.refreshSettingsState()
             val cb = pendingLocationResult
             pendingLocationResult = null
             // Check the actual permission state (approximate/COARSE is fine too).
-            if (data.hasLocationPermission()) data.useDeviceLocation(cb ?: {})
-            else cb?.invoke(false)
+            if (data.hasLocationPermission()) {
+                data.useDeviceLocation { ok ->
+                    cb?.invoke(if (ok) LocationOutcome.SUCCESS else LocationOutcome.FAILED)
+                }
+            } else {
+                // Right after a denial, a missing rationale means "don't ask again":
+                // the dialog can no longer be shown.
+                val rationale =
+                    shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) ||
+                    shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)
+                cb?.invoke(
+                    if (rationale) LocationOutcome.PERMISSION_DENIED
+                    else LocationOutcome.PERMISSION_DENIED_FOREVER
+                )
+            }
         }
 
-    private fun useDeviceLocation(onDone: (Boolean) -> Unit) {
+    private fun useDeviceLocation(onDone: (LocationOutcome) -> Unit) {
         if (data.hasLocationPermission()) {
-            data.useDeviceLocation(onDone)
+            data.useDeviceLocation { ok ->
+                onDone(if (ok) LocationOutcome.SUCCESS else LocationOutcome.FAILED)
+            }
         } else {
             pendingLocationResult = onDone
+            locationPerm.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
+    }
+
+    /** First launch: ask for the location permission right away (once) and use the
+     *  device location when it is available, so weather works without any setup. */
+    private fun ensureLocationSetup() {
+        val sm = SettingsManager.get()
+        if (sm.hasPlace()) return
+        if (data.hasLocationPermission()) {
+            data.useDeviceLocation {}
+        } else if (!sm.wasLocationPermAsked()) {
             locationPerm.launch(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             )
@@ -71,6 +103,7 @@ class ComposeHomeActivity : ComponentActivity() {
                     onSearchCities = { query, cb -> data.searchCities(query, cb) },
                     onPickPlace = { data.setPlace(it) },
                     onUseDeviceLocation = { cb -> useDeviceLocation(cb) },
+                    onTimeFormatChanged = { data.refreshSettingsState() },
                 )
             }
         }
@@ -85,6 +118,8 @@ class ComposeHomeActivity : ComponentActivity() {
         brightness.reapply()
         brightness.start()
         if (!UiMetrics.isCompactHeight(resources)) pixelShift.start()
+        // After data.start() — the location fetch needs the controller's IO executor.
+        ensureLocationSetup()
     }
 
     override fun onStop() {

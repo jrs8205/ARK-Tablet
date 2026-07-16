@@ -6,6 +6,9 @@ import org.jrs82.fsclock.WeatherCondition
 
 enum class Page { HOME, INFO, FORECAST, SETTINGS }
 
+/** Result of a "Use device location" attempt, for precise error texts. */
+enum class LocationOutcome { SUCCESS, FAILED, PERMISSION_DENIED, PERMISSION_DENIED_FOREVER }
+
 /* ---------------- State model ---------------- */
 
 data class WeatherUi(
@@ -56,8 +59,6 @@ data class HomeUi(
     val battCharging: Boolean = false,
     val met: WeatherUi? = null,
     val om: WeatherUi? = null,
-    val sunRise: String = "—",
-    val sunSet: String = "—",
     val dayLen: String = "",
     val sunriseMin: Int = -1,
     val sunsetMin: Int = -1,
@@ -67,6 +68,9 @@ data class HomeUi(
     /** Night red-tint overlay active (setting + nighttime). */
     val redTint: Boolean = false,
     val forecast: List<DayForecastUi> = emptyList(),
+    /** 12-hour (AM/PM) time rendering — see [TimeFormat]. */
+    val twelveHour: Boolean = false,
+    val locationPermGranted: Boolean = false,
 )
 
 /* ---------------- Number formatting ---------------- */

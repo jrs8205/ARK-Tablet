@@ -49,14 +49,16 @@ import java.util.Locale
 
 /* ---------------- Clock text (live, second precision, device time zone) ---------------- */
 
-private data class ClockText(val time: String, val sec: String, val date: String)
+private data class ClockText(val time: String, val sec: String, val ampm: String, val date: String)
 
-private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
+private val time24Formatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
+private val time12Formatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm", Locale.ENGLISH)
+private val amPmFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("a", Locale.ENGLISH)
 private val secondFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("ss", Locale.ENGLISH)
 private val dateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.ENGLISH)
 
 @Composable
-private fun rememberClockText(): ClockText {
+private fun rememberClockText(twelveHour: Boolean): ClockText {
     var now by remember { mutableStateOf(ZonedDateTime.now(ZoneId.systemDefault())) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -65,8 +67,9 @@ private fun rememberClockText(): ClockText {
         }
     }
     return ClockText(
-        time = now.format(timeFormatter),
+        time = now.format(if (twelveHour) time12Formatter else time24Formatter),
         sec = now.format(secondFormatter),
+        ampm = if (twelveHour) now.format(amPmFormatter) else "",
         date = now.format(dateFormatter),
     )
 }
@@ -81,7 +84,8 @@ fun HomeScreen(
     onBrightnessChanged: () -> Unit = {},
     onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit = { _, cb -> cb(null) },
     onPickPlace: (PlaceUi) -> Unit = {},
-    onUseDeviceLocation: ((Boolean) -> Unit) -> Unit = { it(false) },
+    onUseDeviceLocation: ((LocationOutcome) -> Unit) -> Unit = { it(LocationOutcome.FAILED) },
+    onTimeFormatChanged: () -> Unit = {},
 ) {
     Box(
         Modifier.fillMaxSize().background(
@@ -99,15 +103,17 @@ fun HomeScreen(
                 TopBar(ui, s, page, onPage)
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (page) {
-                        Page.HOME -> HomePage(ui, s)
+                        Page.HOME -> HomePage(ui, s, onSearchCities, onPickPlace)
                         Page.INFO -> InfoPage(ui, s)
                         Page.FORECAST -> ForecastPage(ui, s)
                         Page.SETTINGS -> SettingsPage(
+                            ui = ui,
                             s = s,
                             onBrightnessChanged = onBrightnessChanged,
                             onSearchCities = onSearchCities,
                             onPickPlace = onPickPlace,
                             onUseDeviceLocation = onUseDeviceLocation,
+                            onTimeFormatChanged = onTimeFormatChanged,
                         )
                     }
                 }
@@ -228,12 +234,17 @@ private fun NavButton(label: String, active: Boolean, s: Scale, leading: android
 /* ---------------- Home page ---------------- */
 
 @Composable
-private fun HomePage(ui: HomeUi, s: Scale) {
+private fun HomePage(
+    ui: HomeUi,
+    s: Scale,
+    onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
+    onPickPlace: (PlaceUi) -> Unit,
+) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().weight(1f)) {
             ClockCol(ui, s, Modifier.weight(1.42f).fillMaxHeight())
             Box(Modifier.fillMaxHeight().width(s.dh(0.12f)).background(Ark.Line))
-            WeatherCol(ui, s, Modifier.weight(1f).fillMaxHeight())
+            WeatherCol(ui, s, Modifier.weight(1f).fillMaxHeight(), onSearchCities, onPickPlace)
         }
         SunMoonBand(ui, s)
     }
@@ -241,7 +252,7 @@ private fun HomePage(ui: HomeUi, s: Scale) {
 
 @Composable
 private fun ClockCol(ui: HomeUi, s: Scale, modifier: Modifier) {
-    val clock = rememberClockText()
+    val clock = rememberClockText(ui.twelveHour)
     Column(
         modifier.padding(horizontal = s.dw(3f)),
         verticalArrangement = Arrangement.Center,
@@ -250,12 +261,17 @@ private fun ClockCol(ui: HomeUi, s: Scale, modifier: Modifier) {
         Row(verticalAlignment = Alignment.Top) {
             Text(clock.time, color = Color(0xFFEAF3FF), fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(30f), maxLines = 1)
             Spacer(Modifier.width(s.dw(1f)))
-            // Seconds as fixed-width digit slots → never overlaps for any value.
-            Row(Modifier.padding(top = s.ds(2.2f)), verticalAlignment = Alignment.Top) {
-                for (ch in clock.sec) {
-                    Box(Modifier.width(s.ds(4.0f)), contentAlignment = Alignment.Center) {
-                        Text(ch.toString(), color = Ark.Accent, fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(8.5f), maxLines = 1)
+            Column(Modifier.padding(top = s.ds(2.2f)), horizontalAlignment = Alignment.CenterHorizontally) {
+                // Seconds as fixed-width digit slots → never overlaps for any value.
+                Row(verticalAlignment = Alignment.Top) {
+                    for (ch in clock.sec) {
+                        Box(Modifier.width(s.ds(4.0f)), contentAlignment = Alignment.Center) {
+                            Text(ch.toString(), color = Ark.Accent, fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(8.5f), maxLines = 1)
+                        }
                     }
+                }
+                if (clock.ampm.isNotEmpty()) {
+                    Text(clock.ampm, color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(3.2f), maxLines = 1)
                 }
             }
         }
@@ -265,21 +281,35 @@ private fun ClockCol(ui: HomeUi, s: Scale, modifier: Modifier) {
 }
 
 @Composable
-private fun WeatherCol(ui: HomeUi, s: Scale, modifier: Modifier) {
+private fun WeatherCol(
+    ui: HomeUi,
+    s: Scale,
+    modifier: Modifier,
+    onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
+    onPickPlace: (PlaceUi) -> Unit,
+) {
     Column(
         modifier.padding(horizontal = s.dw(3.4f)),
         verticalArrangement = Arrangement.Center
     ) {
         if (ui.needsPlace) {
+            var searchOpen by remember { mutableStateOf(false) }
             Text(
                 "No location set",
                 color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(3.6f)
             )
             Spacer(Modifier.height(s.dh(1.2f)))
             Text(
-                "Open Settings (⚙) and search for your city to get weather.",
+                "Search for your city to get weather, or use device location in Settings (⚙).",
                 color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.6f)
             )
+            Spacer(Modifier.height(s.dh(2.2f)))
+            ActionButton("Search city", s) { searchOpen = true }
+            if (searchOpen) {
+                CitySearchDialog(s, onSearchCities,
+                    onPick = { place -> onPickPlace(place); searchOpen = false },
+                    onDismiss = { searchOpen = false })
+            }
         } else {
             WeatherBlock("MET NORWAY (YR)", ui.met, Ark.Good, Ark.SourceText, s)
             Spacer(Modifier.height(s.dh(1.6f)))
@@ -363,9 +393,9 @@ private fun SunMoonBand(ui: HomeUi, s: Scale) {
             Text("☀", color = Ark.Warm, fontSize = s.sh(3.2f))
             Spacer(Modifier.width(s.dw(1.2f)))
             Text("Sunrise ", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.6f))
-            Text(ui.sunRise, color = Ark.Warm, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.6f))
+            Text(TimeFormat.minutesOfDay(ui.sunriseMin, ui.twelveHour), color = Ark.Warm, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.6f))
             Text("  ·  Sunset ", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.6f))
-            Text(ui.sunSet, color = Ark.Warm, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.6f))
+            Text(TimeFormat.minutesOfDay(ui.sunsetMin, ui.twelveHour), color = Ark.Warm, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.6f))
             if (ui.dayLen.isNotEmpty()) {
                 Text("  ·  ", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.6f))
                 Text(ui.dayLen, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.6f))

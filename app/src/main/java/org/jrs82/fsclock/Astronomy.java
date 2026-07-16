@@ -117,16 +117,6 @@ public final class Astronomy {
         return String.format(L, "%d h %02d min", minutes / 60, minutes % 60);
     }
 
-    public static String formatSunrise(SunTimes sun) {
-        if (sun.sunriseMinutes == SunTimes.NEVER_RISES) return "—";
-        return formatMinutes(sun.sunriseMinutes);
-    }
-
-    public static String formatSunset(SunTimes sun) {
-        if (sun.sunsetMinutes == SunTimes.NEVER_SETS) return "—";
-        return formatMinutes(sun.sunsetMinutes);
-    }
-
     public static String formatDayLength(SunTimes sun) {
         if (sun.sunriseMinutes == SunTimes.NEVER_RISES
                 || sun.sunsetMinutes == SunTimes.NEVER_SETS) return "";

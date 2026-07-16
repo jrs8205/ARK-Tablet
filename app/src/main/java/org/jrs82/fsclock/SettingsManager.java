@@ -17,6 +17,8 @@ public final class SettingsManager {
     public static final String KEY_NIGHT_EVENING_HOUR = "night_evening_hour";
     public static final String KEY_NIGHT_RED_TINT = "night_red_tint";
     public static final String KEY_LAST_WEATHER_UPDATE = "last_weather_update";
+    public static final String KEY_TWELVE_HOUR_CLOCK = "twelve_hour_clock";
+    public static final String KEY_LOCATION_PERM_ASKED = "location_perm_asked";
 
     public static final int DEFAULT_DAY_BRIGHTNESS = 60;
     public static final int DEFAULT_NIGHT_BRIGHTNESS = 8;
@@ -27,6 +29,7 @@ public final class SettingsManager {
 
     private static SettingsManager instance;
     private SharedPreferences prefs;
+    private Context appCtx;
 
     private SettingsManager() {}
 
@@ -37,8 +40,8 @@ public final class SettingsManager {
 
     public synchronized void init(Context appCtx) {
         if (prefs == null) {
-            prefs = appCtx.getApplicationContext()
-                    .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            this.appCtx = appCtx.getApplicationContext();
+            prefs = this.appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         }
     }
 
@@ -124,6 +127,30 @@ public final class SettingsManager {
 
     public void setNightRedTint(boolean v) {
         prefs().edit().putBoolean(KEY_NIGHT_RED_TINT, v).apply();
+    }
+
+    /** Until the user picks a format in Settings, follows the device's 12/24-hour setting. */
+    public boolean isTwelveHourClock() {
+        SharedPreferences p = prefs();
+        if (!p.contains(KEY_TWELVE_HOUR_CLOCK)) {
+            return !android.text.format.DateFormat.is24HourFormat(appCtx);
+        }
+        return p.getBoolean(KEY_TWELVE_HOUR_CLOCK, false);
+    }
+
+    public void setTwelveHourClock(boolean v) {
+        prefs().edit().putBoolean(KEY_TWELVE_HOUR_CLOCK, v).apply();
+    }
+
+    // ---------------- Location permission ----------------
+
+    /** True once the first-launch permission dialog has been shown (any outcome). */
+    public boolean wasLocationPermAsked() {
+        return prefs().getBoolean(KEY_LOCATION_PERM_ASKED, false);
+    }
+
+    public void setLocationPermAsked() {
+        prefs().edit().putBoolean(KEY_LOCATION_PERM_ASKED, true).apply();
     }
 
     // ---------------- Status ----------------

@@ -62,11 +62,11 @@ fun ForecastPage(ui: HomeUi, s: Scale) {
         val scroll = rememberScrollState()
         Row(Modifier.fillMaxWidth().weight(1f).verticalScroll(scroll)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dh(0.5f))) {
-                for (h in day.hours) MetHourRow(h, day.met[h], s)
+                for (h in day.hours) MetHourRow(h, day.met[h], ui.twelveHour, s)
             }
             Spacer(Modifier.width(s.dw(2f)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dh(0.5f))) {
-                for (h in day.hours) OmHourRow(h, day.om[h], s)
+                for (h in day.hours) OmHourRow(h, day.om[h], ui.twelveHour, s)
             }
         }
     }
@@ -95,12 +95,12 @@ private fun SourceTag(text: String, bg: Color, fg: Color, s: Scale, modifier: Mo
 }
 
 @Composable
-private fun MetHourRow(hour: Int, row: HourRowUi?, s: Scale) {
+private fun MetHourRow(hour: Int, row: HourRowUi?, twelveHour: Boolean, s: Scale) {
     Row(
         Modifier.fillMaxWidth().background(Ark.SensorPanel.copy(alpha = 0.5f), RoundedCornerShape(9.dp)).padding(horizontal = s.dw(1.2f), vertical = s.dh(0.7f)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        HourLabel(hour, s)
+        HourLabel(hour, twelveHour, s)
         WxIcon(row, s)
         Spacer(Modifier.width(s.dw(0.8f)))
         Text(numUnit(row?.temp, 0, "°"), color = tempColor(row?.temp), fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 1, modifier = Modifier.width(s.dw(6f)))
@@ -112,12 +112,12 @@ private fun MetHourRow(hour: Int, row: HourRowUi?, s: Scale) {
 }
 
 @Composable
-private fun OmHourRow(hour: Int, row: HourRowUi?, s: Scale) {
+private fun OmHourRow(hour: Int, row: HourRowUi?, twelveHour: Boolean, s: Scale) {
     Row(
         Modifier.fillMaxWidth().background(Ark.SensorPanel.copy(alpha = 0.5f), RoundedCornerShape(9.dp)).padding(horizontal = s.dw(1.2f), vertical = s.dh(0.7f)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        HourLabel(hour, s)
+        HourLabel(hour, twelveHour, s)
         WxIcon(row, s)
         Spacer(Modifier.width(s.dw(0.8f)))
         Text(numUnit(row?.temp, 0, "°"), color = tempColor(row?.temp), fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 1, modifier = Modifier.width(s.dw(6f)))
@@ -131,8 +131,13 @@ private fun OmHourRow(hour: Int, row: HourRowUi?, s: Scale) {
 }
 
 @Composable
-private fun HourLabel(hour: Int, s: Scale) {
-    Text(String.format("%02d", hour), color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2.3f), maxLines = 1, modifier = Modifier.width(s.dw(3.4f)))
+private fun HourLabel(hour: Int, twelveHour: Boolean, s: Scale) {
+    Text(
+        TimeFormat.hourLabel(hour, twelveHour), color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold,
+        fontSize = s.sh(2.3f), maxLines = 1,
+        // "12 AM" needs a wider slot than "00".
+        modifier = Modifier.width(if (twelveHour) s.dw(6f) else s.dw(3.4f))
+    )
 }
 
 @Composable
