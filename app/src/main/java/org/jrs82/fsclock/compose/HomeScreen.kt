@@ -103,7 +103,7 @@ fun HomeScreen(
             val textPx = minOf(heightPx, constraints.maxWidth / 150f)
             val s = Scale(heightPx, widthPx, textPx, LocalDensity.current)
             Column(Modifier.fillMaxSize()) {
-                TopBar(ui, s, page, onPage)
+                TopBar(ui, s, page, onPage, onSearchCities, onPickPlace)
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (page) {
                         Page.HOME -> HomePage(ui, s, onSearchCities, onPickPlace)
@@ -132,7 +132,15 @@ fun HomeScreen(
 /* ---------------- Top bar ---------------- */
 
 @Composable
-private fun TopBar(ui: HomeUi, s: Scale, page: Page, onPage: (Page) -> Unit) {
+private fun TopBar(
+    ui: HomeUi,
+    s: Scale,
+    page: Page,
+    onPage: (Page) -> Unit,
+    onSearchCities: (String, (List<PlaceUi>?) -> Unit) -> Unit,
+    onPickPlace: (PlaceUi) -> Unit,
+) {
+    var searchOpen by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().height(s.dh(11f)).background(
             Brush.horizontalGradient(listOf(Ark.TopBarStart, Ark.TopBarEnd))
@@ -142,14 +150,24 @@ private fun TopBar(ui: HomeUi, s: Scale, page: Page, onPage: (Page) -> Unit) {
             Modifier.fillMaxWidth().weight(1f).padding(horizontal = s.dw(2.4f)),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Place on two lines (city / country)
-            Icon(Icons.Filled.Place, null, tint = Ark.Accent, modifier = Modifier.size(s.dh(3.2f)))
-            Spacer(Modifier.width(s.dw(0.8f)))
-            Column {
-                Text(ui.city, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.7f), maxLines = 1)
-                if (ui.country.isNotEmpty()) {
-                    Text(ui.country, color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.1f), maxLines = 1)
+            // Place on two lines (city / country); tapping opens the city search.
+            Row(
+                Modifier.clickable { searchOpen = true }.padding(vertical = s.dh(0.8f), horizontal = s.dw(0.4f)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Filled.Place, null, tint = Ark.Accent, modifier = Modifier.size(s.dh(3.2f)))
+                Spacer(Modifier.width(s.dw(0.8f)))
+                Column {
+                    Text(ui.city, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.7f), maxLines = 1)
+                    if (ui.country.isNotEmpty()) {
+                        Text(ui.country, color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(2.1f), maxLines = 1)
+                    }
                 }
+            }
+            if (searchOpen) {
+                CitySearchDialog(s, onSearchCities,
+                    onPick = { place -> onPickPlace(place); searchOpen = false },
+                    onDismiss = { searchOpen = false })
             }
             Spacer(Modifier.width(s.dw(2.4f)))
             // WiFi bars + speed/band on two lines

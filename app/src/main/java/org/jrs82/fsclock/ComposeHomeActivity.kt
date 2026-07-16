@@ -74,14 +74,15 @@ class ComposeHomeActivity : ComponentActivity() {
         }
     }
 
-    /** First launch: ask for the location permission right away (once) and use the
-     *  device location when it is available, so weather works without any setup. */
+    /** Location-first: whenever the permission is granted, the place follows the
+     *  device location on every start — a searched city is the secondary option
+     *  (and the primary one only while the permission is missing). The first
+     *  launch asks for the permission right away (once). */
     private fun ensureLocationSetup() {
         val sm = SettingsManager.get()
-        if (sm.hasPlace()) return
         if (data.hasLocationPermission()) {
             data.useDeviceLocation {}
-        } else if (!sm.wasLocationPermAsked()) {
+        } else if (!sm.hasPlace() && !sm.wasLocationPermAsked()) {
             locationPerm.launch(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             )

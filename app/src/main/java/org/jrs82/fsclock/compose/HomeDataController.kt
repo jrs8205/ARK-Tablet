@@ -496,8 +496,16 @@ class HomeDataController(activityCtx: Context) {
                 if (loc != null) {
                     val pair = reverseGeocode(loc.latitude, loc.longitude)
                     if (pair != null) {
-                        ui.post {
-                            setPlace(PlaceUi(pair.first, pair.second, loc.latitude, loc.longitude))
+                        // Same city within ~2 km → keep the stored place; a re-set
+                        // would needlessly refetch weather on every app start.
+                        val sm = SettingsManager.get()
+                        val same = sm.hasPlace() && sm.homePlace == pair.first &&
+                            Math.abs(sm.homeLatitude - loc.latitude) < 0.02 &&
+                            Math.abs(sm.homeLongitude - loc.longitude) < 0.02
+                        if (!same) {
+                            ui.post {
+                                setPlace(PlaceUi(pair.first, pair.second, loc.latitude, loc.longitude))
+                            }
                         }
                         ok = true
                     }
