@@ -68,6 +68,13 @@ fun ForecastPage(ui: HomeUi, s: Scale) {
                     for (h in day.hours) MetHourRow(h, day.met[h], ui.twelveHour, s)
                 }
                 for (b in day.metBlocks) MetBlockRow(b, ui.twelveHour, s)
+                if (day.metBlocks.isNotEmpty()) {
+                    Text(
+                        "MET Norway provides forecasts this far ahead in 6-hour periods; rain is the period total.",
+                        color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(1.8f),
+                        modifier = Modifier.padding(top = s.dh(0.4f), start = s.dw(1.2f), end = s.dw(1.2f))
+                    )
+                }
             }
             Spacer(Modifier.width(s.dw(2f)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dh(0.5f))) {
