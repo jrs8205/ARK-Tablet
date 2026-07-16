@@ -56,6 +56,11 @@ class ComposeHomeActivity : ComponentActivity() {
             }
         }
 
+    private val calendarPerm =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            data.refreshCalendar()
+        }
+
     private fun useDeviceLocation(onDone: (LocationOutcome) -> Unit) {
         if (data.hasLocationPermission()) {
             data.useDeviceLocation { ok ->
@@ -104,6 +109,7 @@ class ComposeHomeActivity : ComponentActivity() {
                     onPickPlace = { data.setPlace(it) },
                     onUseDeviceLocation = { cb -> useDeviceLocation(cb) },
                     onTimeFormatChanged = { data.refreshSettingsState() },
+                    onRequestCalendar = { calendarPerm.launch(Manifest.permission.READ_CALENDAR) },
                 )
             }
         }

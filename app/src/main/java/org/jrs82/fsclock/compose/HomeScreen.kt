@@ -42,9 +42,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Date
 import java.util.Locale
 
 /* ---------------- Clock text (live, second precision, device time zone) ---------------- */
@@ -86,6 +88,7 @@ fun HomeScreen(
     onPickPlace: (PlaceUi) -> Unit = {},
     onUseDeviceLocation: ((LocationOutcome) -> Unit) -> Unit = { it(LocationOutcome.FAILED) },
     onTimeFormatChanged: () -> Unit = {},
+    onRequestCalendar: () -> Unit = {},
 ) {
     Box(
         Modifier.fillMaxSize().background(
@@ -104,7 +107,7 @@ fun HomeScreen(
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (page) {
                         Page.HOME -> HomePage(ui, s, onSearchCities, onPickPlace)
-                        Page.INFO -> InfoPage(ui, s)
+                        Page.INFO -> InfoPage(ui, s, onRequestCalendar)
                         Page.FORECAST -> ForecastPage(ui, s)
                         Page.SETTINGS -> SettingsPage(
                             ui = ui,
@@ -156,8 +159,16 @@ private fun TopBar(ui: HomeUi, s: Scale, page: Page, onPage: (Page) -> Unit) {
                 Text(if (ui.wifiMbps > 0) "${ui.wifiMbps} Mb" else "–", color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(1.9f), maxLines = 1)
                 Text(ui.wifiBand, color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(1.9f), maxLines = 1)
             }
+            // Cellular gauge, only on tablets with an active SIM.
+            if (ui.cellLevel >= 0) {
+                Spacer(Modifier.width(s.dw(1.6f)))
+                CellBars(ui.cellLevel, s)
+                Spacer(Modifier.width(s.dw(0.8f)))
+                Text(ui.cellType, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(1.9f), maxLines = 1)
+            }
             Spacer(Modifier.width(s.dw(1.6f)))
             BatteryGlyph(ui.battPct, ui.battCharging, s)
+            ChargingInfo(ui, s)
 
             Spacer(Modifier.weight(1f))
 
@@ -196,6 +207,22 @@ private fun WifiBars(level: Int, s: Scale) {
     }
 }
 
+/** Cellular signal as 4 rising bars (levels 0–4 map to 0–4 lit bars). */
+@Composable
+private fun CellBars(level: Int, s: Scale) {
+    val heights = floatArrayOf(0.4f, 0.6f, 0.8f, 1.0f)
+    val col = wifiColor(if (level < 1) 1 else level + 1)
+    Row(verticalAlignment = Alignment.Bottom) {
+        for (i in 0 until 4) {
+            Box(
+                Modifier.width(s.dw(0.55f)).height(s.dh(2.8f * heights[i]))
+                    .background(if (i < level) col else Ark.Faint.copy(alpha = 0.4f), RoundedCornerShape(1.dp))
+            )
+            if (i < 3) Spacer(Modifier.width(s.dw(0.35f)))
+        }
+    }
+}
+
 @Composable
 private fun BatteryGlyph(pct: Int, charging: Boolean, s: Scale) {
     val fillCol = when { pct <= 15 -> Color(0xFFFF5C5C); pct <= 35 -> Ark.Warm; else -> Ark.Good }
@@ -213,6 +240,29 @@ private fun BatteryGlyph(pct: Int, charging: Boolean, s: Scale) {
             Spacer(Modifier.width(s.dw(0.3f)))
         }
         Text("$pct %", color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(2f), maxLines = 1)
+    }
+}
+
+/** Charging details next to the battery: voltage, power and estimated time to full. */
+@Composable
+private fun ChargingInfo(ui: HomeUi, s: Scale) {
+    if (!ui.battCharging) return
+    val line1 = listOfNotNull(
+        ui.battVolts?.let { String.format(Locale.US, "%.1f V", it) },
+        ui.battWatts?.let { String.format(Locale.US, "%.1f W", it) },
+    ).joinToString(" · ")
+    val line2 = ui.battEtaMin?.let { min ->
+        if (min >= 60) "full in ${min / 60} h ${min % 60} min" else "full in $min min"
+    } ?: ""
+    if (line1.isEmpty() && line2.isEmpty()) return
+    Spacer(Modifier.width(s.dw(1.0f)))
+    Column {
+        if (line1.isNotEmpty()) {
+            Text(line1, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(1.9f), maxLines = 1)
+        }
+        if (line2.isNotEmpty()) {
+            Text(line2, color = Ark.Muted, fontFamily = HankenGrotesk, fontWeight = FontWeight.Medium, fontSize = s.sh(1.9f), maxLines = 1)
+        }
     }
 }
 
@@ -408,6 +458,15 @@ private fun SunMoonBand(ui: HomeUi, s: Scale) {
                 if (ui.moonIllum >= 0) {
                     Text("  ·  ${ui.moonIllum} %", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.6f))
                 }
+            }
+            if (ui.nextAlarmTs > 0) {
+                Spacer(Modifier.width(s.dw(4f)))
+                Text("⏰", color = Ark.Accent, fontSize = s.sh(2.8f))
+                Spacer(Modifier.width(s.dw(1.2f)))
+                val fmt = remember(ui.twelveHour) {
+                    SimpleDateFormat(if (ui.twelveHour) "EEE h:mm a" else "EEE HH:mm", Locale.ENGLISH)
+                }
+                Text(fmt.format(Date(ui.nextAlarmTs)), color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold, fontSize = s.sh(2.6f), maxLines = 1)
             }
         }
     }

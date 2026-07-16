@@ -34,14 +34,18 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
-/* ---------------- Info page: sun + moon ---------------- */
+/* ---------------- Info page: sun + moon + calendar ---------------- */
 
 @Composable
-fun InfoPage(ui: HomeUi, s: Scale) {
+fun InfoPage(ui: HomeUi, s: Scale, onRequestCalendar: () -> Unit = {}) {
     Row(Modifier.fillMaxSize().padding(horizontal = s.dw(3f), vertical = s.dh(3f))) {
         SunCard(ui, s, Modifier.weight(1.25f).fillMaxHeight())
         Spacer(Modifier.width(s.dw(3f)))
-        MoonCard(ui, s, Modifier.weight(1f).fillMaxHeight())
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            MoonCard(ui, s, Modifier.fillMaxWidth().weight(0.4f))
+            Spacer(Modifier.height(s.dh(3f)))
+            CalendarCard(ui, s, onRequestCalendar, Modifier.fillMaxWidth().weight(0.6f))
+        }
     }
 }
 
@@ -140,6 +144,62 @@ private fun MoonCard(ui: HomeUi, s: Scale, modifier: Modifier) {
                 Text("Illumination ${ui.moonIllum} %", color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.3f))
             }
         }
+    }
+}
+
+/** Upcoming calendar events (next 48 h); asks for READ_CALENDAR on demand. */
+@Composable
+private fun CalendarCard(ui: HomeUi, s: Scale, onRequestCalendar: () -> Unit, modifier: Modifier) {
+    Column(
+        modifier.background(Ark.Panel, RoundedCornerShape(20.dp))
+            .border(s.dh(0.16f), Ark.Line, RoundedCornerShape(20.dp)).padding(s.dw(2.4f))
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("🗓", fontSize = s.sh(3.6f))
+            Spacer(Modifier.width(s.dw(1.2f)))
+            Text("Calendar", color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f))
+        }
+        Spacer(Modifier.height(s.dh(1.4f)))
+        when {
+            !ui.calendarPermGranted -> {
+                Text(
+                    "Show your upcoming events here.",
+                    color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.3f)
+                )
+                Spacer(Modifier.height(s.dh(1.2f)))
+                ActionButton("Allow calendar access", s) { onRequestCalendar() }
+            }
+            ui.calendarEvents.isEmpty() -> {
+                Text(
+                    "No events in the next 2 days.",
+                    color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2.3f)
+                )
+            }
+            else -> {
+                for (e in ui.calendarEvents) EventRow(e, ui.twelveHour, s)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EventRow(e: CalendarEventUi, twelveHour: Boolean, s: Scale) {
+    val timeText = if (e.allDay) {
+        java.text.SimpleDateFormat("EEE", java.util.Locale.ENGLISH).format(java.util.Date(e.beginTs)) + " all day"
+    } else {
+        java.text.SimpleDateFormat(if (twelveHour) "EEE h:mm a" else "EEE HH:mm", java.util.Locale.ENGLISH)
+            .format(java.util.Date(e.beginTs))
+    }
+    Row(Modifier.fillMaxWidth().padding(vertical = s.dh(0.55f)), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            timeText, color = Ark.Accent, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold,
+            fontSize = s.sh(2.2f), maxLines = 1, modifier = Modifier.width(s.dw(9.5f))
+        )
+        Spacer(Modifier.width(s.dw(1f)))
+        Text(
+            e.title, color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.SemiBold,
+            fontSize = s.sh(2.3f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
     }
 }
 

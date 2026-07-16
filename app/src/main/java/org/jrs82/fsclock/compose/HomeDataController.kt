@@ -2,10 +2,13 @@ package org.jrs82.fsclock.compose
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlarmManager
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.provider.CalendarContract
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
@@ -15,6 +18,7 @@ import android.os.BatteryManager
 import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +83,7 @@ class HomeDataController(activityCtx: Context) {
         ui.post(deviceTick)
         ui.post(weatherTick)
         ui.post(sunTick)
+        ui.post(calendarTick)
     }
 
     fun stop() {
@@ -151,7 +156,9 @@ class HomeDataController(activityCtx: Context) {
             if (!active.get()) return
             if (wifiTickCount++ % 5 == 0) {
                 pushWifi()
+                pushCellular()
                 pushRedTint()
+                pushNextAlarm()
                 // Keeps the permission row honest when it changes in system settings.
                 refreshSettingsState()
             }
@@ -194,6 +201,27 @@ class HomeDataController(activityCtx: Context) {
         update { it.copy(wifiLevel = l, wifiMbps = m, wifiBand = b) }
     }
 
+    /** Cellular gauge for LTE/5G tablets; hidden when no SIM is ready. */
+    private fun pushCellular() {
+        var level = -1
+        var type = ""
+        try {
+            val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            if (tm != null && tm.simState == TelephonyManager.SIM_STATE_READY) {
+                level = tm.signalStrength?.level ?: 0
+                type = try {
+                    // When data rides on WiFi the data network reads UNKNOWN — fall
+                    // back to the voice registration type.
+                    var t = networkTypeLabel(tm.dataNetworkType)
+                    if (t == "Mobile") t = networkTypeLabel(tm.voiceNetworkType)
+                    t
+                } catch (se: SecurityException) { "Mobile" }
+            }
+        } catch (e: Exception) { Log.w(TAG, "cellular", e) }
+        val l = level; val t = type
+        update { it.copy(cellLevel = l, cellType = t) }
+    }
+
     private fun pushBattery() {
         try {
             val bi = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return
@@ -203,8 +231,78 @@ class HomeDataController(activityCtx: Context) {
             if (lvl < 0 || scale <= 0) return
             val pct = Math.round(lvl * 100f / scale)
             val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-            update { it.copy(battPct = pct, battCharging = charging) }
+            val voltsMv = bi.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+            var volts: Float? = null
+            var watts: Float? = null
+            var etaMin: Int? = null
+            if (charging && status != BatteryManager.BATTERY_STATUS_FULL) {
+                val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                if (voltsMv > 0) volts = voltsMv / 1000f
+                // Sign convention of CURRENT_NOW varies by device — magnitude only.
+                val ua = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                if (ua != null && ua != Int.MIN_VALUE && ua != 0 && voltsMv > 0) {
+                    watts = Math.abs(ua / 1_000_000f * voltsMv / 1000f)
+                }
+                val etaMs = bm?.computeChargeTimeRemaining() ?: -1L
+                if (etaMs > 0) etaMin = (etaMs / 60_000L).toInt().coerceAtLeast(1)
+            }
+            update { it.copy(
+                battPct = pct, battCharging = charging,
+                battVolts = volts, battWatts = watts, battEtaMin = etaMin
+            ) }
         } catch (e: Exception) { Log.w(TAG, "battery", e) }
+    }
+
+    private fun pushNextAlarm() {
+        try {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            val ts = am?.nextAlarmClock?.triggerTime ?: -1L
+            update { it.copy(nextAlarmTs = ts) }
+        } catch (e: Exception) { Log.w(TAG, "alarm", e) }
+    }
+
+    // ---------------- Calendar (Info page card) ----------------
+
+    private val calendarTick = object : Runnable {
+        override fun run() { if (!active.get()) return; refreshCalendar(); ui.postDelayed(this, 10L * 60_000L) }
+    }
+
+    fun hasCalendarPermission(): Boolean =
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+
+    /** Re-queries upcoming events (also called right after the permission grant). */
+    fun refreshCalendar() {
+        if (!hasCalendarPermission()) {
+            update { it.copy(calendarPermGranted = false, calendarEvents = emptyList()) }
+            return
+        }
+        executeCurrent { run ->
+            val events = try { queryCalendar() } catch (e: Exception) { Log.w(TAG, "calendar", e); emptyList() }
+            update(run) { it.copy(calendarPermGranted = true, calendarEvents = events) }
+        }
+    }
+
+    /** Next 5 event instances within 48 h (includes ones already in progress). */
+    private fun queryCalendar(): List<CalendarEventUi> {
+        val now = System.currentTimeMillis()
+        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().let {
+            ContentUris.appendId(it, now)
+            ContentUris.appendId(it, now + 48L * 3_600_000L)
+            it.build()
+        }
+        val out = ArrayList<CalendarEventUi>()
+        ctx.contentResolver.query(
+            uri,
+            arrayOf(CalendarContract.Instances.BEGIN, CalendarContract.Instances.TITLE, CalendarContract.Instances.ALL_DAY),
+            null, null,
+            CalendarContract.Instances.BEGIN + " ASC"
+        )?.use { c ->
+            while (c.moveToNext() && out.size < 5) {
+                val title = c.getString(1)?.takeIf { it.isNotBlank() } ?: "(untitled)"
+                out.add(CalendarEventUi(title, c.getLong(0), c.getInt(2) == 1))
+            }
+        }
+        return out
     }
 
     // ---------------- Weather (MET Norway + Open-Meteo) ----------------
@@ -473,6 +571,18 @@ class HomeDataController(activityCtx: Context) {
             freqMhz < 2500 -> "2.4 GHz"
             freqMhz < 5925 -> "5 GHz"
             else -> "6 GHz"
+        }
+
+        private fun networkTypeLabel(type: Int): String = when (type) {
+            TelephonyManager.NETWORK_TYPE_NR -> "5G"
+            TelephonyManager.NETWORK_TYPE_LTE -> "4G LTE"
+            TelephonyManager.NETWORK_TYPE_HSPAP, TelephonyManager.NETWORK_TYPE_HSPA,
+            TelephonyManager.NETWORK_TYPE_HSDPA, TelephonyManager.NETWORK_TYPE_HSUPA,
+            TelephonyManager.NETWORK_TYPE_UMTS, TelephonyManager.NETWORK_TYPE_TD_SCDMA -> "3G"
+            TelephonyManager.NETWORK_TYPE_EDGE, TelephonyManager.NETWORK_TYPE_GPRS,
+            TelephonyManager.NETWORK_TYPE_GSM -> "2G"
+            TelephonyManager.NETWORK_TYPE_UNKNOWN -> "Mobile"
+            else -> "Mobile"
         }
     }
 }

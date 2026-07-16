@@ -37,6 +37,13 @@ data class DayForecastUi(
     val metBlocks: List<HourRowUi> = emptyList(),
 )
 
+/** One upcoming calendar instance for the Info page card. */
+data class CalendarEventUi(
+    val title: String,
+    val beginTs: Long,
+    val allDay: Boolean,
+)
+
 /** A geocoded place selected by the user (or via device location). */
 data class PlaceUi(
     val name: String,
@@ -58,8 +65,19 @@ data class HomeUi(
     val wifiLevel: Int = 0,
     val wifiMbps: Int = 0,
     val wifiBand: String = "",
+    /** Cellular gauge; level -1 = no SIM / not shown. Type e.g. "5G", "4G LTE". */
+    val cellLevel: Int = -1,
+    val cellType: String = "",
     val battPct: Int = 0,
     val battCharging: Boolean = false,
+    /** Charging details; null when unknown or not charging. */
+    val battVolts: Float? = null,
+    val battWatts: Float? = null,
+    val battEtaMin: Int? = null,
+    /** Next alarm clock (epoch ms), -1 = none set. */
+    val nextAlarmTs: Long = -1L,
+    val calendarPermGranted: Boolean = false,
+    val calendarEvents: List<CalendarEventUi> = emptyList(),
     val met: WeatherUi? = null,
     val om: WeatherUi? = null,
     val dayLen: String = "",
