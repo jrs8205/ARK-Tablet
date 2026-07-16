@@ -110,16 +110,20 @@ public class MetNorwayClient {
 
             String symbol = null;
             double precip = Double.NaN;
+            int blockHours = 1;
             if (next1 != null) {
                 JSONObject sum = next1.optJSONObject("summary");
                 if (sum != null) symbol = sum.optString("symbol_code", null);
                 JSONObject det = next1.optJSONObject("details");
                 if (det != null) precip = det.optDouble("precipitation_amount", Double.NaN);
             } else if (next6 != null) {
-                // Later days only have 6-hour blocks: use the symbol but leave the
-                // hourly precipitation empty (the 6 h sum would mislead as an hourly value).
+                // Later days only have 6-hour blocks; shown as block rows in the UI,
+                // so the precipitation sum is kept (labeled as a 6 h span there).
+                blockHours = 6;
                 JSONObject sum = next6.optJSONObject("summary");
                 if (sum != null) symbol = sum.optString("symbol_code", null);
+                JSONObject det = next6.optJSONObject("details");
+                if (det != null) precip = det.optDouble("precipitation_amount", Double.NaN);
             }
 
             WeatherCondition cond = symbol != null
@@ -134,7 +138,7 @@ public class MetNorwayClient {
                 data.current.windSpeed = wind;
                 data.current.windDirection = windDir;
                 data.current.cloudCover = clouds;
-                data.current.precip1h = precip;
+                data.current.precip1h = blockHours == 1 ? precip : Double.NaN;
                 data.current.feelsLike = WeatherData.computeFeelsLike(temp, wind, rh);
                 data.current.condition = cond;
                 data.current.timestamp = ts;
@@ -151,6 +155,7 @@ public class MetNorwayClient {
             row.precipitation = precip;
             row.windSpeed = wind;
             row.condition = cond;
+            row.blockHours = blockHours;
             data.hours.add(row);
         }
         return data;

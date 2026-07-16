@@ -54,6 +54,22 @@ tells whether the permission is granted, and the clock is hard-coded to 24-hour 
 - Formatting lives in a pure-Kotlin `TimeFormat` helper with JUnit tests
   (first tests in this repo; adds the `junit` test dependency).
 
+## 4. MET Norway 6 h blocks in the 7-day view (added after device-test feedback)
+
+MET Norway only provides hourly data for the first ~2.5 days; later days come as
+6-hour blocks (4 per day, on UTC boundaries). 1.0.0 dropped those blocks into the
+hourly grid, leaving the MET column looking empty ("–" on 20 of 24 rows) and the
+precipitation hidden. Now:
+
+- `MetNorwayClient` keeps the block's precipitation sum and tags rows with
+  `blockHours` (1 or 6).
+- `buildForecast` routes 6 h rows into `DayForecastUi.metBlocks` instead of the
+  hourly map.
+- The MET column renders block days as four rows labeled with the local time span
+  (`03–09`, or `3 AM–9 AM` in 12-hour mode — MET's blocks are UTC-aligned, so local
+  labels vary by time zone), showing temperature, wind, condition icon and the 6 h
+  precipitation sum. The hourly grid is skipped on days with no hourly MET data.
+
 ## Out of scope (backlog)
 
 Charging details (volts/watts/ETA), calendar events, next-alarm info, screensaver

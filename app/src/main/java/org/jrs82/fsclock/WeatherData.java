@@ -32,6 +32,9 @@ public class WeatherData {
         public double windGust = Double.NaN;
         public double radiationGlobal = Double.NaN;
         public WeatherCondition condition = WeatherCondition.unknown();
+        /** Width of the forecast slot in hours: 1 = hourly, 6 = a MET Norway 6 h block
+         *  (then {@link #precipitation} is the 6 h sum, not an hourly value). */
+        public int blockHours = 1;
     }
 
     public Current current = new Current();

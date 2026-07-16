@@ -48,6 +48,22 @@ class TimeFormatTest {
         assertEquals("11 PM", TimeFormat.hourLabel(23, true))
     }
 
+    // ---------------- blockLabel (6 h forecast blocks) ----------------
+
+    @Test fun blockLabel24h() {
+        assertEquals("03–09", TimeFormat.blockLabel(3, false))
+        assertEquals("09–15", TimeFormat.blockLabel(9, false))
+        assertEquals("21–03", TimeFormat.blockLabel(21, false))
+        assertEquals("00–06", TimeFormat.blockLabel(0, false))
+    }
+
+    @Test fun blockLabel12h() {
+        assertEquals("3 AM–9 AM", TimeFormat.blockLabel(3, true))
+        assertEquals("9 AM–3 PM", TimeFormat.blockLabel(9, true))
+        assertEquals("9 PM–3 AM", TimeFormat.blockLabel(21, true))
+        assertEquals("12 AM–6 AM", TimeFormat.blockLabel(0, true))
+    }
+
     // ---------------- stepperHour (Day/Night starts) ----------------
 
     @Test fun stepperHour24h() {

@@ -27,6 +27,13 @@ object TimeFormat {
         if (twelveHour) hourLabel(hour, true)
         else String.format(Locale.US, "%02d:00", hour)
 
+    /** Label of a 6 h forecast block starting at [startHour]: "03–09" / "3 AM–9 AM". */
+    fun blockLabel(startHour: Int, twelveHour: Boolean): String {
+        val end = (startHour + 6) % 24
+        return if (twelveHour) "${hourLabel(startHour, true)}–${hourLabel(end, true)}"
+        else String.format(Locale.US, "%02d–%02d", startHour, end)
+    }
+
     private fun hour12(h: Int): Int = if (h % 12 == 0) 12 else h % 12
 
     private fun amPm(h: Int): String = if (h < 12) "AM" else "PM"

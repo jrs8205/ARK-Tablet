@@ -62,7 +62,12 @@ fun ForecastPage(ui: HomeUi, s: Scale) {
         val scroll = rememberScrollState()
         Row(Modifier.fillMaxWidth().weight(1f).verticalScroll(scroll)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dh(0.5f))) {
-                for (h in day.hours) MetHourRow(h, day.met[h], ui.twelveHour, s)
+                // Later days only have 6 h blocks — showing the hourly grid there would
+                // render a column of empty dashes.
+                if (day.met.isNotEmpty()) {
+                    for (h in day.hours) MetHourRow(h, day.met[h], ui.twelveHour, s)
+                }
+                for (b in day.metBlocks) MetBlockRow(b, ui.twelveHour, s)
             }
             Spacer(Modifier.width(s.dw(2f)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dh(0.5f))) {
@@ -127,6 +132,27 @@ private fun OmHourRow(hour: Int, row: HourRowUi?, twelveHour: Boolean, s: Scale)
         Text(windText(row?.wind), color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2f), maxLines = 1)
         Spacer(Modifier.width(s.dw(1f)))
         Text(rainText(row?.precip), color = Ark.Cold, fontFamily = HankenGrotesk, fontSize = s.sh(2f), maxLines = 1)
+    }
+}
+
+/** A MET Norway 6 h block ("03–09"): temperature, wind and the block's precipitation sum. */
+@Composable
+private fun MetBlockRow(row: HourRowUi, twelveHour: Boolean, s: Scale) {
+    Row(
+        Modifier.fillMaxWidth().background(Ark.SensorPanel.copy(alpha = 0.5f), RoundedCornerShape(9.dp)).padding(horizontal = s.dw(1.2f), vertical = s.dh(0.7f)),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            TimeFormat.blockLabel(row.hour, twelveHour), color = Ark.Ink, fontFamily = HankenGrotesk, fontWeight = FontWeight.Bold,
+            fontSize = s.sh(2.3f), maxLines = 1, modifier = Modifier.width(if (twelveHour) s.dw(11f) else s.dw(6f))
+        )
+        WxIcon(row, s)
+        Spacer(Modifier.width(s.dw(0.8f)))
+        Text(numUnit(row.temp, 0, "°"), color = tempColor(row.temp), fontFamily = BigShoulders, fontWeight = FontWeight.Bold, fontSize = s.sh(3.4f), maxLines = 1, modifier = Modifier.width(s.dw(6f)))
+        Spacer(Modifier.weight(1f))
+        Text(windText(row.wind), color = Ark.Muted, fontFamily = HankenGrotesk, fontSize = s.sh(2f), maxLines = 1)
+        Spacer(Modifier.width(s.dw(1.2f)))
+        Text(rainText(row.precip), color = Ark.Cold, fontFamily = HankenGrotesk, fontSize = s.sh(2f), maxLines = 1)
     }
 }
 

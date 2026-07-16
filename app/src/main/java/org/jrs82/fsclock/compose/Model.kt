@@ -32,6 +32,9 @@ data class DayForecastUi(
     val met: Map<Int, HourRowUi>,
     val om: Map<Int, HourRowUi>,
     val hours: List<Int>,              // union, in order
+    /** MET Norway 6 h blocks (later days), ordered; [HourRowUi.hour] = local start
+     *  hour and [HourRowUi.precip] = the 6 h sum. */
+    val metBlocks: List<HourRowUi> = emptyList(),
 )
 
 /** A geocoded place selected by the user (or via device location). */

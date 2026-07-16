@@ -256,16 +256,19 @@ class HomeDataController(activityCtx: Context) {
     /** Groups MET Norway and Open-Meteo hours into days. */
     private fun buildForecast(): List<DayForecastUi> {
         val metByDay = sortedMapOf<Int, MutableMap<Int, HourRowUi>>()
+        val metBlocksByDay = sortedMapOf<Int, MutableList<HourRowUi>>()
         val omByDay = sortedMapOf<Int, MutableMap<Int, HourRowUi>>()
         val dayTs = HashMap<Int, Long>()
         metCache?.let { wd ->
             for (h in wd.hours) {
                 val key = dayKey(h.timestamp)
                 val wind = if (!h.windSpeed.isNaN()) h.windSpeed else h.windGust
-                metByDay.getOrPut(key) { HashMap() }[h.hour] = HourRowUi(
+                val row = HourRowUi(
                     h.hour, nanToNull(h.temperature), null, nanToNull(wind), null,
                     nanToNull(h.precipitation), h.condition
                 )
+                if (h.blockHours > 1) metBlocksByDay.getOrPut(key) { ArrayList() }.add(row)
+                else metByDay.getOrPut(key) { HashMap() }[h.hour] = row
                 if (!dayTs.containsKey(key)) dayTs[key] = h.timestamp
             }
         }
@@ -281,6 +284,7 @@ class HomeDataController(activityCtx: Context) {
         }
         val dayKeys = sortedSetOf<Int>()
         dayKeys.addAll(metByDay.keys)
+        dayKeys.addAll(metBlocksByDay.keys)
         dayKeys.addAll(omByDay.keys)
         val fmt = SimpleDateFormat("EEE d MMM", Locale.ENGLISH)
         val out = ArrayList<DayForecastUi>()
@@ -291,7 +295,8 @@ class HomeDataController(activityCtx: Context) {
             val metMap = metByDay[dayK] ?: emptyMap()
             val omMap = omByDay[dayK] ?: emptyMap()
             val hours = (metMap.keys + omMap.keys).toSortedSet().toList()
-            out.add(DayForecastUi(label, metMap, omMap, hours))
+            val blocks = (metBlocksByDay[dayK] ?: emptyList()).sortedBy { it.hour }
+            out.add(DayForecastUi(label, metMap, omMap, hours, blocks))
         }
         return out
     }
